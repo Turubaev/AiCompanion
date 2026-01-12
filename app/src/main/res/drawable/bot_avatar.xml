@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="120dp"
+    android:height="120dp"
+    android:viewportWidth="120"
+    android:viewportHeight="120">
+    <!-- Фон круга -->
+    <path
+        android:fillColor="#6200EE"
+        android:pathData="M60,60m-60,0a60,60 0,1 1,120 0a60,60 0,1 1,-120 0"/>
+    
+    <!-- Иконка робота/голова -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M40,35 L80,35 Q85,35 85,40 L85,55 Q85,60 80,60 L40,60 Q35,60 35,55 L35,40 Q35,35 40,35 Z"/>
+    
+    <!-- Глаза (левое) -->
+    <path
+        android:fillColor="#6200EE"
+        android:pathData="M50,47.5m-3,0a3,3 0,1 1,6 0a3,3 0,1 1,-6 0"/>
+    
+    <!-- Глаза (правое) -->
+    <path
+        android:fillColor="#6200EE"
+        android:pathData="M70,47.5m-3,0a3,3 0,1 1,6 0a3,3 0,1 1,-6 0"/>
+    
+    <!-- Рот (упрощенный) -->
+    <path
+        android:fillColor="#6200EE"
+        android:pathData="M50,55 Q60,58 70,55 Q60,62 50,55 Z"/>
+</vector>
