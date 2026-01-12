@@ -8,6 +8,17 @@ android {
     namespace = "dev.catandbunny.ai_companion"
     compileSdk = 36
 
+    // Читаем API ключ из local.properties
+    val localPropertiesFile = rootProject.file("local.properties")
+    var openAiApiKey = ""
+    if (localPropertiesFile.exists()) {
+        localPropertiesFile.readLines().forEach { line ->
+            if (line.startsWith("OPENAI_API_KEY=")) {
+                openAiApiKey = line.substringAfter("=").trim()
+            }
+        }
+    }
+
     defaultConfig {
         applicationId = "dev.catandbunny.ai_companion"
         minSdk = 26
@@ -16,6 +27,9 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // Добавляем API ключ в BuildConfig
+        buildConfigField("String", "OPENAI_API_KEY", if (openAiApiKey.isNotEmpty()) "\"$openAiApiKey\"" else "\"\"")
     }
 
     buildTypes {

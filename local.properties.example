@@ -1,0 +1,10 @@
+## This file is an example of local.properties
+# Copy this file to local.properties and add your actual values
+# local.properties is already in .gitignore and will not be committed to git
+
+# Location of the SDK. This is only used by Gradle.
+sdk.dir=YOUR_SDK_PATH_HERE
+
+# OpenAI API Key
+# Get your API key from https://platform.openai.com/api-keys
+OPENAI_API_KEY=your-api-key-here
