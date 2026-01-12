@@ -18,17 +18,24 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.catandbunny.ai_companion.R
+import dev.catandbunny.ai_companion.config.ApiConfig
 import dev.catandbunny.ai_companion.model.ChatMessage
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
     modifier: Modifier = Modifier,
-    botAvatar: Painter? = null
+    botAvatar: Painter? = null,
+    viewModel: ChatViewModel = viewModel(
+        factory = ChatViewModelFactory(ApiConfig.OPENAI_API_KEY)
+    )
 ) {
     var messageText by remember { mutableStateOf("") }
-    var messages by remember { mutableStateOf<List<ChatMessage>>(emptyList()) }
+    val messages by viewModel.messages.collectAsState()
+    val isLoading by viewModel.isLoading.collectAsState()
+    val error by viewModel.error.collectAsState()
     
     val listState = rememberLazyListState()
     
@@ -36,6 +43,14 @@ fun ChatScreen(
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
             listState.animateScrollToItem(messages.size - 1)
+        }
+    }
+    
+    // Показываем ошибку, если есть
+    LaunchedEffect(error) {
+        error?.let {
+            // Ошибка уже обрабатывается в ViewModel
+            viewModel.clearError()
         }
     }
 
@@ -108,27 +123,31 @@ fun ChatScreen(
 
                     FloatingActionButton(
                         onClick = {
-                            if (messageText.isNotBlank()) {
-                                // Добавляем сообщение пользователя
-                                messages = messages + ChatMessage(
-                                    text = messageText,
-                                    isFromUser = true
-                                )
-                                
-                                // Очищаем поле ввода
+                            if (messageText.isNotBlank() && !isLoading) {
+                                viewModel.sendMessage(messageText)
                                 messageText = ""
-                                
-                                // Здесь позже добавим логику отправки боту
                             }
                         },
                         modifier = Modifier.size(56.dp),
-                        containerColor = MaterialTheme.colorScheme.primary
+                        containerColor = if (isLoading) {
+                            MaterialTheme.colorScheme.primaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.primary
+                        }
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Send,
-                            contentDescription = "Отправить",
-                            tint = MaterialTheme.colorScheme.onPrimary
-                        )
+                        if (isLoading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Send,
+                                contentDescription = "Отправить",
+                                tint = MaterialTheme.colorScheme.onPrimary
+                            )
+                        }
                     }
                 }
             }
@@ -149,6 +168,29 @@ fun ChatScreen(
                     message = message,
                     botAvatar = botAvatar
                 )
+            }
+            
+            // Индикатор загрузки внизу списка
+            if (isLoading) {
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.Start
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(24.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Бот печатает...",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
             }
         }
     }
