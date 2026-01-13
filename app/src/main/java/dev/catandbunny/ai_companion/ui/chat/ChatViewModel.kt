@@ -38,10 +38,11 @@ class ChatViewModel(private val apiKey: String) : ViewModel() {
         viewModelScope.launch {
             val result = repository.sendMessage(text, _messages.value)
 
-            result.onSuccess { botResponse ->
+            result.onSuccess { (botResponse, metadata) ->
                 val botMessage = ChatMessage(
                     text = botResponse,
-                    isFromUser = false
+                    isFromUser = false,
+                    responseMetadata = metadata
                 )
                 _messages.value = _messages.value + botMessage
                 _isLoading.value = false
