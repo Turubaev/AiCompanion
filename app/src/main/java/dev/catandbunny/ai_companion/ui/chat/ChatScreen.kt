@@ -1,5 +1,8 @@
 package dev.catandbunny.ai_companion.ui.chat
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -16,12 +19,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.catandbunny.ai_companion.R
 import dev.catandbunny.ai_companion.config.ApiConfig
 import dev.catandbunny.ai_companion.model.ChatMessage
+import dev.catandbunny.ai_companion.model.ResponseMetadata
+import dev.catandbunny.ai_companion.ui.json.JsonViewScreen
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -36,8 +43,24 @@ fun ChatScreen(
     val messages by viewModel.messages.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val error by viewModel.error.collectAsState()
+    var selectedMetadata by remember { mutableStateOf<ResponseMetadata?>(null) }
     
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
     val listState = rememberLazyListState()
+    
+    // Функция для копирования текста в буфер обмена
+    val onCopyText: (String) -> Unit = { text ->
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val clip = ClipData.newPlainText("Ответ бота", text)
+        clipboard.setPrimaryClip(clip)
+        
+        scope.launch {
+            snackbarHostState.showSnackbar("Текст скопирован в буфер обмена")
+        }
+        Unit
+    }
     
     // Автопрокрутка при добавлении нового сообщения
     LaunchedEffect(messages.size) {
@@ -54,8 +77,20 @@ fun ChatScreen(
         }
     }
 
+    // Показываем экран JSON, если выбран
+    selectedMetadata?.let { metadata ->
+        JsonViewScreen(
+            metadata = metadata,
+            onBack = { 
+                selectedMetadata = null 
+            }
+        )
+        return
+    }
+    
     Scaffold(
         modifier = modifier.fillMaxSize(),
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             // Заголовок приложения с поддержкой edgeToEdge - всегда закреплен сверху
             TopAppBar(
@@ -163,11 +198,24 @@ fun ChatScreen(
             contentPadding = PaddingValues(vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            items(messages) { message ->
-                ChatMessageItem(
-                    message = message,
-                    botAvatar = botAvatar
-                )
+            items(
+                items = messages,
+                key = { message -> 
+                    // Используем timestamp для уникальности - это стабильный ключ
+                    message.timestamp
+                }
+            ) { message ->
+                // Используем key для стабильности компонента при перерисовке
+                key(message.timestamp) {
+                    ChatMessageItem(
+                        message = message,
+                        botAvatar = botAvatar,
+                        onShowJson = { metadata ->
+                            selectedMetadata = metadata
+                        },
+                        onCopyText = onCopyText
+                    )
+                }
             }
             
             // Индикатор загрузки внизу списка
