@@ -40,7 +40,23 @@ fun JsonViewScreen(
     BackHandler(onBack = onBack)
     
     val gson = GsonBuilder().setPrettyPrinting().create()
-    val jsonString = gson.toJson(metadata)
+    // Создаем JSON в зависимости от типа ответа
+    val jsonString = if (metadata.isRequirementsResponse && metadata.requirements != null) {
+        // Для финального ТЗ создаем JSON со структурой: questionText, requirements, recommendations, confidence
+        val requirementsJson = mutableMapOf<String, Any>(
+            "questionText" to metadata.questionText,
+            "requirements" to metadata.requirements,
+            "confidence" to (metadata.confidence ?: 0.0)
+        )
+        // Добавляем recommendations только если оно есть
+        if (metadata.recommendations != null) {
+            requirementsJson["recommendations"] = metadata.recommendations
+        }
+        gson.toJson(requirementsJson)
+    } else {
+        // Для других ответов показываем все метаданные
+        gson.toJson(metadata)
+    }
     
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -94,7 +110,11 @@ fun JsonViewScreen(
                         .padding(16.dp)
                 ) {
                     Text(
-                        text = "JSON метаданных ответа",
+                        text = if (metadata.isRequirementsResponse) {
+                            "JSON технического задания"
+                        } else {
+                            "JSON метаданных ответа"
+                        },
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(bottom = 12.dp)

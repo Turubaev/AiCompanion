@@ -18,5 +18,8 @@ data class ResponseMetadata(
     val botTimestamp: Long? = null, // Timestamp от бота (время генерации ответа на стороне бота)
     val answerLength: Int? = null,  // Длина ответа в символах
     val category: String? = null,   // Категория/тема вопроса (если определена)
-    val confidence: Double? = null  // Уровень уверенности ответа (0.0-1.0, если применимо)
+    val confidence: Double? = null, // Уровень уверенности ответа (0.0-1.0, если применимо)
+    val requirements: String? = null, // Техническое задание (для финального JSON ответа)
+    val recommendations: String? = null, // Рекомендации (для финального JSON ответа)
+    val isRequirementsResponse: Boolean = false // Флаг, указывающий, является ли ответ финальным ТЗ (JSON) или текстовым (сбор требований)
 )

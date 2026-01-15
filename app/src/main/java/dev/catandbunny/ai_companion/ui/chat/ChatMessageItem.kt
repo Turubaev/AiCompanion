@@ -1,5 +1,6 @@
 package dev.catandbunny.ai_companion.ui.chat
 
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -78,8 +79,10 @@ fun ChatMessageItem(
                     text = message.text,
                     style = MaterialTheme.typography.bodyMedium.copy(
                         fontSize = 16.sp,
-                        fontFamily = if (!message.isFromUser && message.responseMetadata != null) {
-                            // Используем моноширинный шрифт для JSON ответов бота
+                        // Используем моноширинный шрифт для JSON ответов (финальное ТЗ)
+                        fontFamily = if (!message.isFromUser && 
+                            message.responseMetadata != null && 
+                            message.responseMetadata.isRequirementsResponse) {
                             FontFamily.Monospace
                         } else {
                             FontFamily.Default
@@ -94,13 +97,14 @@ fun ChatMessageItem(
                 )
             }
             
-            // Кнопки под сообщением бота
-            if (!message.isFromUser && message.responseMetadata != null) {
+            // Кнопки под сообщением бота - показываем для всех сообщений бота
+            if (!message.isFromUser) {
                 Spacer(modifier = Modifier.height(4.dp))
                 Row(
                     modifier = Modifier.align(Alignment.End),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    // Кнопка "Копировать" для всех сообщений бота
                     TextButton(
                         onClick = {
                             onCopyText(message.text)
@@ -112,18 +116,41 @@ fun ChatMessageItem(
                             color = MaterialTheme.colorScheme.primary
                         )
                     }
-                    TextButton(
-                        onClick = {
-                            message.responseMetadata?.let { metadata ->
-                                onShowJson(metadata)
+                    // Кнопка "Просмотреть JSON" только для финальных JSON-ответов (ТЗ)
+                    val hasMetadata = message.responseMetadata != null
+                    val isRequirementsResponse = message.responseMetadata?.isRequirementsResponse == true
+                    val shouldShowJsonButton = hasMetadata && isRequirementsResponse
+                    
+                    // Логирование для отладки
+                    Log.d("ChatMessageItem", "=== Проверка видимости кнопки 'Просмотреть JSON' ===")
+                    Log.d("ChatMessageItem", "hasMetadata: $hasMetadata")
+                    Log.d("ChatMessageItem", "isRequirementsResponse: $isRequirementsResponse")
+                    Log.d("ChatMessageItem", "shouldShowJsonButton: $shouldShowJsonButton")
+                    if (hasMetadata) {
+                        val metadata = message.responseMetadata!!
+                        Log.d("ChatMessageItem", "Metadata details:")
+                        Log.d("ChatMessageItem", "  - questionText: ${metadata.questionText}")
+                        Log.d("ChatMessageItem", "  - requirements: ${if (metadata.requirements != null) "present (${metadata.requirements?.length} chars)" else "null"}")
+                        Log.d("ChatMessageItem", "  - recommendations: ${if (metadata.recommendations != null) "present (${metadata.recommendations?.length} chars)" else "null"}")
+                        Log.d("ChatMessageItem", "  - confidence: ${metadata.confidence}")
+                        Log.d("ChatMessageItem", "  - isRequirementsResponse: ${metadata.isRequirementsResponse}")
+                    }
+                    
+                    if (shouldShowJsonButton) {
+                        TextButton(
+                            onClick = {
+                                message.responseMetadata?.let { metadata ->
+                                    Log.d("ChatMessageItem", "Кнопка 'Просмотреть JSON' нажата")
+                                    onShowJson(metadata)
+                                }
                             }
+                        ) {
+                            Text(
+                                text = "Просмотреть JSON",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
                         }
-                    ) {
-                        Text(
-                            text = "Просмотреть JSON",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.primary
-                        )
                     }
                 }
             }
