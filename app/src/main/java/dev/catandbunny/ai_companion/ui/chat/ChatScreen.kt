@@ -13,6 +13,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -26,22 +27,34 @@ import dev.catandbunny.ai_companion.config.ApiConfig
 import dev.catandbunny.ai_companion.model.ChatMessage
 import dev.catandbunny.ai_companion.model.ResponseMetadata
 import dev.catandbunny.ai_companion.ui.json.JsonViewScreen
+import dev.catandbunny.ai_companion.ui.settings.SettingsScreen
+import dev.catandbunny.ai_companion.ui.settings.SettingsViewModel
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
     modifier: Modifier = Modifier,
-    botAvatar: Painter? = null,
-    viewModel: ChatViewModel = viewModel(
-        factory = ChatViewModelFactory(ApiConfig.OPENAI_API_KEY)
-    )
+    botAvatar: Painter? = null
 ) {
+    // Получаем SettingsViewModel для доступа к системному промпту
+    val settingsViewModel: SettingsViewModel = viewModel()
+    
+    // Создаем ChatViewModel с функцией получения системного промпта
+    // Функция всегда будет получать актуальное значение из StateFlow
+    val viewModel: ChatViewModel = viewModel(
+        factory = ChatViewModelFactory(
+            apiKey = ApiConfig.OPENAI_API_KEY,
+            getSystemPrompt = { settingsViewModel.getSystemPrompt() }
+        )
+    )
+    
     var messageText by remember { mutableStateOf("") }
     val messages by viewModel.messages.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val error by viewModel.error.collectAsState()
     var selectedMetadata by remember { mutableStateOf<ResponseMetadata?>(null) }
+    var showSettings by remember { mutableStateOf(false) }
     
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -75,6 +88,14 @@ fun ChatScreen(
         }
     }
 
+    // Показываем экран настроек, если открыт
+    if (showSettings) {
+        SettingsScreen(
+            onBack = { showSettings = false }
+        )
+        return
+    }
+    
     // Показываем экран JSON, если выбран
     selectedMetadata?.let { metadata ->
         JsonViewScreen(
@@ -109,6 +130,15 @@ fun ChatScreen(
                         Text(
                             text = "AI Companion",
                             style = MaterialTheme.typography.titleLarge
+                        )
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { showSettings = true }) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "Настройки",
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer
                         )
                     }
                 },
