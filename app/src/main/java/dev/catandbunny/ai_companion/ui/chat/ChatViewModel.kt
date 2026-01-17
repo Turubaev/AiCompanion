@@ -10,7 +10,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-class ChatViewModel(private val apiKey: String) : ViewModel() {
+class ChatViewModel(
+    private val apiKey: String,
+    private val getSystemPrompt: () -> String
+) : ViewModel() {
     private val repository = ChatRepository(apiKey)
 
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
@@ -37,7 +40,8 @@ class ChatViewModel(private val apiKey: String) : ViewModel() {
         _error.value = null
 
         viewModelScope.launch {
-            val result = repository.sendMessage(text, _messages.value)
+            val systemPrompt = getSystemPrompt()
+            val result = repository.sendMessage(text, _messages.value, systemPrompt)
 
             result.onSuccess { (botResponse, metadata) ->
                 Log.d("ChatViewModel", "=== Создание ChatMessage ===")
