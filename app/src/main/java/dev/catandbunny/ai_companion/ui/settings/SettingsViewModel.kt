@@ -116,9 +116,20 @@ class SettingsViewModel : ViewModel() {
     private val _systemPrompt = MutableStateFlow(defaultSystemPrompt)
     val systemPrompt: StateFlow<String> = _systemPrompt.asStateFlow()
 
+    // Температура модели (по умолчанию 0.7)
+    private val _temperature = MutableStateFlow(0.7)
+    val temperature: StateFlow<Double> = _temperature.asStateFlow()
+
     fun updateSystemPrompt(newPrompt: String) {
         _systemPrompt.value = newPrompt
     }
 
     fun getSystemPrompt(): String = _systemPrompt.value
+
+    fun updateTemperature(newTemperature: Double) {
+        // Ограничиваем температуру диапазоном от 0.0 до 2.0
+        _temperature.value = newTemperature.coerceIn(0.0, 2.0)
+    }
+
+    fun getTemperature(): Double = _temperature.value
 }

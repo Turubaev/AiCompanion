@@ -12,7 +12,8 @@ import kotlinx.coroutines.launch
 
 class ChatViewModel(
     private val apiKey: String,
-    private val getSystemPrompt: () -> String
+    private val getSystemPrompt: () -> String,
+    private val getTemperature: () -> Double
 ) : ViewModel() {
     private val repository = ChatRepository(apiKey)
 
@@ -41,7 +42,8 @@ class ChatViewModel(
 
         viewModelScope.launch {
             val systemPrompt = getSystemPrompt()
-            val result = repository.sendMessage(text, _messages.value, systemPrompt)
+            val temperature = getTemperature()
+            val result = repository.sendMessage(text, _messages.value, systemPrompt, temperature)
 
             result.onSuccess { (botResponse, metadata) ->
                 Log.d("ChatViewModel", "=== Создание ChatMessage ===")

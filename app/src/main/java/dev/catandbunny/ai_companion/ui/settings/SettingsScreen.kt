@@ -20,6 +20,7 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = viewModel()
 ) {
     val systemPrompt by viewModel.systemPrompt.collectAsState()
+    val temperature by viewModel.temperature.collectAsState()
     var showEditDialog by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -90,6 +91,89 @@ fun SettingsScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text("Редактировать")
+            }
+            
+            Spacer(modifier = Modifier.height(24.dp))
+            
+            // Заголовок секции температуры
+            Text(
+                text = "Температура модели",
+                style = MaterialTheme.typography.titleLarge
+            )
+            
+            // Описание температуры
+            Text(
+                text = "Температура контролирует случайность ответов модели. " +
+                        "Низкие значения (0.0-0.5) делают ответы более детерминированными и фокусированными. " +
+                        "Высокие значения (1.0-2.0) делают ответы более креативными и разнообразными.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            // Карточка с настройкой температуры
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                ) {
+                    // Текущее значение температуры
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Температура",
+                            style = MaterialTheme.typography.labelLarge
+                        )
+                        Text(
+                            text = String.format("%.1f", temperature),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    // Слайдер температуры
+                    Slider(
+                        value = temperature.toFloat(),
+                        onValueChange = { newValue ->
+                            viewModel.updateTemperature(newValue.toDouble())
+                        },
+                        valueRange = 0f..2f,
+                        steps = 19, // Шаги по 0.1 (0.0, 0.1, 0.2, ..., 2.0)
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    
+                    // Подсказки по значениям
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "0.0",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = "1.0",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = "2.0",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
             }
         }
     }
