@@ -1,11 +1,13 @@
 package dev.catandbunny.ai_companion.ui.settings
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -21,7 +23,10 @@ fun SettingsScreen(
 ) {
     val systemPrompt by viewModel.systemPrompt.collectAsState()
     val temperature by viewModel.temperature.collectAsState()
+    val selectedModel by viewModel.selectedModel.collectAsState()
+    val availableModels = viewModel.availableModels
     var showEditDialog by remember { mutableStateOf(false) }
+    var showModelDropdown by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -172,6 +177,84 @@ fun SettingsScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                    }
+                }
+            }
+            
+            Spacer(modifier = Modifier.height(24.dp))
+            
+            // Заголовок секции модели
+            Text(
+                text = "Модель бота",
+                style = MaterialTheme.typography.titleLarge
+            )
+            
+            // Описание модели
+            Text(
+                text = "Выберите модель OpenAI для генерации ответов. Разные модели имеют разные возможности и стоимость.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            // Карточка с выбором модели
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                ) {
+                    Text(
+                        text = "Модель",
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    // Выпадающий список моделей
+                    Box {
+                        OutlinedTextField(
+                            value = selectedModel,
+                            onValueChange = { },
+                            readOnly = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { showModelDropdown = true },
+                            trailingIcon = {
+                                IconButton(onClick = { showModelDropdown = true }) {
+                                    Icon(
+                                        imageVector = Icons.Default.ArrowDropDown,
+                                        contentDescription = "Выбрать модель"
+                                    )
+                                }
+                            },
+                            label = { Text("Выберите модель") }
+                        )
+                        
+                        DropdownMenu(
+                            expanded = showModelDropdown,
+                            onDismissRequest = { showModelDropdown = false }
+                        ) {
+                            availableModels.forEach { model ->
+                                DropdownMenuItem(
+                                    text = { Text(model) },
+                                    onClick = {
+                                        viewModel.updateSelectedModel(model)
+                                        showModelDropdown = false
+                                    },
+                                    leadingIcon = {
+                                        RadioButton(
+                                            selected = model == selectedModel,
+                                            onClick = null
+                                        )
+                                    }
+                                )
+                            }
+                        }
                     }
                 }
             }

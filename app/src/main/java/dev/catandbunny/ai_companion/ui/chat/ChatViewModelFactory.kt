@@ -6,12 +6,13 @@ import androidx.lifecycle.ViewModelProvider
 class ChatViewModelFactory(
     private val apiKey: String,
     private val getSystemPrompt: () -> String,
-    private val getTemperature: () -> Double
+    private val getTemperature: () -> Double,
+    private val getModel: () -> String
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(ChatViewModel::class.java)) {
-            return ChatViewModel(apiKey, getSystemPrompt, getTemperature) as T
+            return ChatViewModel(apiKey, getSystemPrompt, getTemperature, getModel) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

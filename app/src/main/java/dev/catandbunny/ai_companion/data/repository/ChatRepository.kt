@@ -17,7 +17,8 @@ class ChatRepository(private val apiKey: String) {
         userMessage: String,
         conversationHistory: List<ChatMessage>,
         systemPromptText: String,
-        temperature: Double = 0.7
+        temperature: Double = 0.7,
+        model: String = "gpt-3.5-turbo"
     ): Result<Pair<String, ResponseMetadata>> {
         return try {
             val startTime = System.currentTimeMillis()
@@ -37,7 +38,7 @@ class ChatRepository(private val apiKey: String) {
             } + Message(role = "user", content = userMessage)
 
             val request = OpenAIRequest(
-                model = "gpt-3.5-turbo",
+                model = model,
                 messages = messages,
                 temperature = temperature,
                 maxTokens = 2000 // Увеличиваем для длинных ТЗ

@@ -40,13 +40,14 @@ fun ChatScreen(
     // Получаем SettingsViewModel для доступа к системному промпту
     val settingsViewModel: SettingsViewModel = viewModel()
     
-    // Создаем ChatViewModel с функцией получения системного промпта и температуры
+    // Создаем ChatViewModel с функцией получения системного промпта, температуры и модели
     // Функция всегда будет получать актуальное значение из StateFlow
     val viewModel: ChatViewModel = viewModel(
         factory = ChatViewModelFactory(
             apiKey = ApiConfig.OPENAI_API_KEY,
             getSystemPrompt = { settingsViewModel.getSystemPrompt() },
-            getTemperature = { settingsViewModel.getTemperature() }
+            getTemperature = { settingsViewModel.getTemperature() },
+            getModel = { settingsViewModel.getSelectedModel() }
         )
     )
     
