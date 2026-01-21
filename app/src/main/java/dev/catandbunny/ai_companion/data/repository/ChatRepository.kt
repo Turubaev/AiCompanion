@@ -9,6 +9,7 @@ import dev.catandbunny.ai_companion.data.model.Message
 import dev.catandbunny.ai_companion.data.model.OpenAIRequest
 import dev.catandbunny.ai_companion.model.ChatMessage
 import dev.catandbunny.ai_companion.model.ResponseMetadata
+import dev.catandbunny.ai_companion.utils.CostCalculator
 
 class ChatRepository(private val apiKey: String) {
     private val openAIService = RetrofitClient.openAIService
@@ -56,7 +57,16 @@ class ChatRepository(private val apiKey: String) {
                 
                 val responseTime = System.currentTimeMillis() - startTime
                 val tokensUsed = responseBody.usage.totalTokens
+                val promptTokens = responseBody.usage.promptTokens
+                val completionTokens = responseBody.usage.completionTokens
                 val timestamp = System.currentTimeMillis()
+                
+                // Рассчитываем стоимость
+                val (costUSD, costRUB) = CostCalculator.calculateCost(
+                    model = model,
+                    promptTokens = promptTokens,
+                    completionTokens = completionTokens
+                )
                 
                 // Пытаемся определить, является ли ответ JSON (финальный ТЗ) или текстовым (сбор требований)
                 Log.d("ChatRepository", "=== Парсинг ответа от бота ===")
@@ -71,6 +81,18 @@ class ChatRepository(private val apiKey: String) {
                 Log.d("ChatRepository", "requirements: ${if (parseResult.requirements != null) "present (${parseResult.requirements?.length} chars)" else "null"}")
                 Log.d("ChatRepository", "recommendations: ${if (parseResult.recommendations != null) "present (${parseResult.recommendations?.length} chars)" else "null"}")
                 Log.d("ChatRepository", "confidence: ${parseResult.confidence}")
+                
+                // Формируем метаданные для отображения
+                val responseTimeFormatted = if (responseTime < 1000) {
+                    "${responseTime}мс"
+                } else {
+                    String.format("%.2fс", responseTime / 1000.0)
+                }
+                val costFormatted = CostCalculator.formatCost(costUSD, costRUB)
+                val metadataText = "\n\n---\nВремя ответа: $responseTimeFormatted | Токенов: $tokensUsed | Стоимость: $costFormatted"
+                
+                // Добавляем метаданные в конец текста ответа
+                val displayTextWithMetadata = parseResult.displayText + metadataText
                 
                 val metadata = ResponseMetadata(
                     questionText = parseResult.questionText,
@@ -92,8 +114,8 @@ class ChatRepository(private val apiKey: String) {
                 Log.d("ChatRepository", "=== Созданная ResponseMetadata ===")
                 Log.d("ChatRepository", "metadata.isRequirementsResponse: ${metadata.isRequirementsResponse}")
                 
-                // Возвращаем текст ответа для отображения в чате
-                Result.success(Pair(parseResult.displayText, metadata))
+                // Возвращаем текст ответа для отображения в чате с метаданными
+                Result.success(Pair(displayTextWithMetadata, metadata))
             } else {
                 val errorMessage = response.errorBody()?.string() 
                     ?: "Ошибка при отправке запроса: ${response.code()}"
