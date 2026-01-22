@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.catandbunny.ai_companion.data.repository.ChatRepository
 import dev.catandbunny.ai_companion.model.ChatMessage
+import dev.catandbunny.ai_companion.utils.TokenCounter
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -30,10 +31,14 @@ class ChatViewModel(
     fun sendMessage(text: String) {
         if (text.isBlank() || _isLoading.value) return
 
+        // Подсчитываем токены для сообщения пользователя
+        val manualTokenCount = TokenCounter.countTokens(text)
+
         // Добавляем сообщение пользователя
         val userMessage = ChatMessage(
             text = text,
-            isFromUser = true
+            isFromUser = true,
+            manualTokenCount = manualTokenCount
         )
         _messages.value = _messages.value + userMessage
 
@@ -56,6 +61,32 @@ class ChatViewModel(
                 Log.d("ChatViewModel", "metadata.recommendations: ${if (metadata.recommendations != null) "present (${metadata.recommendations?.length} chars)" else "null"}")
                 Log.d("ChatViewModel", "metadata.confidence: ${metadata.confidence}")
                 
+                // Вычисляем токены текущего запроса пользователя от API
+                val currentPromptTokens = metadata.promptTokens ?: 0
+                val previousPromptTokens = _messages.value
+                    .lastOrNull { !it.isFromUser && it.responseMetadata?.promptTokens != null }
+                    ?.responseMetadata?.promptTokens ?: 0
+                
+                // Токены текущего запроса пользователя = разница между текущим и предыдущим promptTokens
+                val userApiTokenCount = if (currentPromptTokens > previousPromptTokens && previousPromptTokens > 0) {
+                    // Для последующих запросов: разница между текущим и предыдущим promptTokens
+                    currentPromptTokens - previousPromptTokens
+                } else {
+                    // Для первого запроса: вычитаем токены системного промпта
+                    val systemPromptTokens = TokenCounter.countTokens(systemPrompt)
+                    (currentPromptTokens - systemPromptTokens).coerceAtLeast(0)
+                }
+                
+                // Обновляем последнее сообщение пользователя с apiTokenCount
+                val updatedMessages = _messages.value.toMutableList()
+                val lastUserMessageIndex = updatedMessages.indexOfLast { it.isFromUser }
+                if (lastUserMessageIndex >= 0) {
+                    val lastUserMessage = updatedMessages[lastUserMessageIndex]
+                    updatedMessages[lastUserMessageIndex] = lastUserMessage.copy(
+                        apiTokenCount = userApiTokenCount
+                    )
+                }
+                
                 val botMessage = ChatMessage(
                     text = botResponse,
                     isFromUser = false,
@@ -64,8 +95,10 @@ class ChatViewModel(
                 
                 Log.d("ChatViewModel", "=== ChatMessage создан ===")
                 Log.d("ChatViewModel", "botMessage.responseMetadata?.isRequirementsResponse: ${botMessage.responseMetadata?.isRequirementsResponse}")
+                Log.d("ChatViewModel", "userApiTokenCount: $userApiTokenCount (current: $currentPromptTokens, previous: $previousPromptTokens)")
                 
-                _messages.value = _messages.value + botMessage
+                // Обновляем список сообщений: обновленное сообщение пользователя + ответ бота
+                _messages.value = updatedMessages + botMessage
                 _isLoading.value = false
             }.onFailure { exception ->
                 _error.value = exception.message ?: "Произошла ошибка"

@@ -97,6 +97,70 @@ fun ChatMessageItem(
                 )
             }
             
+            // Информация о токенах для сообщений пользователя
+            if (message.isFromUser && (message.manualTokenCount != null || message.apiTokenCount != null)) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Column(
+                    modifier = Modifier.align(Alignment.End),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    message.apiTokenCount?.let { count ->
+                        Text(
+                            text = "Токенов (API): $count",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                        )
+                    }
+                    message.manualTokenCount?.let { count ->
+                        Text(
+                            text = "Токенов (ручной): $count",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                        )
+                    }
+                }
+            }
+            
+            // Параметры ответа бота под сообщением (вертикально)
+            if (!message.isFromUser && message.responseMetadata != null) {
+                val meta = message.responseMetadata!!
+                val responseTimeFormatted = if (meta.responseTimeMs < 1000) {
+                    "${meta.responseTimeMs}мс"
+                } else {
+                    String.format("%.2fс", meta.responseTimeMs / 1000.0)
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Column(
+                    modifier = Modifier.align(Alignment.Start),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    Text(
+                        text = "Время ответа: $responseTimeFormatted",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                    )
+                    Text(
+                        text = "Токенов (API): ${meta.tokensUsed}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                    )
+                    meta.manualTokenCount?.let { count ->
+                        Text(
+                            text = "Токенов (ручной): $count",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                        )
+                    }
+                    meta.costFormatted?.let { cost ->
+                        Text(
+                            text = "Стоимость: $cost",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                        )
+                    }
+                }
+            }
+            
             // Кнопки под сообщением бота - показываем для всех сообщений бота
             if (!message.isFromUser) {
                 Spacer(modifier = Modifier.height(4.dp))
