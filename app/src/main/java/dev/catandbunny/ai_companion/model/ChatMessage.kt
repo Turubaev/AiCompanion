@@ -4,7 +4,9 @@ data class ChatMessage(
     val text: String,
     val isFromUser: Boolean,
     val timestamp: Long = System.currentTimeMillis(),
-    val responseMetadata: ResponseMetadata? = null
+    val responseMetadata: ResponseMetadata? = null,
+    val manualTokenCount: Int? = null, // Ручной подсчет токенов для сообщений пользователя
+    val apiTokenCount: Int? = null // Количество токенов запроса пользователя от API
 )
 
 data class ResponseMetadata(
@@ -21,5 +23,8 @@ data class ResponseMetadata(
     val confidence: Double? = null, // Уровень уверенности ответа (0.0-1.0, если применимо)
     val requirements: String? = null, // Техническое задание (для финального JSON ответа)
     val recommendations: String? = null, // Рекомендации (для финального JSON ответа)
-    val isRequirementsResponse: Boolean = false // Флаг, указывающий, является ли ответ финальным ТЗ (JSON) или текстовым (сбор требований)
+    val isRequirementsResponse: Boolean = false, // Флаг, указывающий, является ли ответ финальным ТЗ (JSON) или текстовым (сбор требований)
+    val manualTokenCount: Int? = null, // Ручной подсчет токенов для ответа бота
+    val costFormatted: String? = null, // Отформатированная стоимость для отображения
+    val promptTokens: Int? = null // Количество токенов промпта от API (включая системный промпт, историю и текущий запрос)
 )
