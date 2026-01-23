@@ -5,19 +5,29 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.catandbunny.ai_companion.data.repository.ChatRepository
 import dev.catandbunny.ai_companion.model.ChatMessage
+import dev.catandbunny.ai_companion.utils.HistoryCompressor
 import dev.catandbunny.ai_companion.utils.TokenCounter
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 class ChatViewModel(
     private val apiKey: String,
     private val getSystemPrompt: () -> String,
     private val getTemperature: () -> Double,
-    private val getModel: () -> String
+    private val getModel: () -> String,
+    private val getHistoryCompressionEnabled: () -> Boolean
 ) : ViewModel() {
     private val repository = ChatRepository(apiKey)
+    private val historyCompressor = HistoryCompressor(apiKey)
+    
+    companion object {
+        private const val COMPRESSION_THRESHOLD = 10 // Сжимать каждые 10 сообщений
+    }
 
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
     val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
@@ -28,29 +38,141 @@ class ChatViewModel(
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
 
+    // Накопленные токены из сжатых сообщений (для сохранения истории токенов)
+    private val _accumulatedCompressedTokens = MutableStateFlow(0)
+    val accumulatedCompressedTokens: StateFlow<Int> = _accumulatedCompressedTokens.asStateFlow()
+
+    // Общее количество API токенов в переписке (текущие + накопленные)
+    val totalApiTokens: StateFlow<Int> = kotlinx.coroutines.flow.combine(
+        _messages,
+        _accumulatedCompressedTokens
+    ) { messages, accumulated ->
+        calculateTotalApiTokens(messages) + accumulated
+    }.stateIn(
+        scope = viewModelScope,
+        started = kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000),
+        initialValue = 0
+    )
+
+    /**
+     * Подсчитывает общее количество API токенов из всех сообщений
+     * Учитывает только токены, посчитанные через API
+     * 
+     * tokensUsed в ResponseMetadata включает все токены запроса (prompt + completion),
+     * поэтому суммируем только tokensUsed из ответов бота для получения общего количества токенов
+     */
+    private fun calculateTotalApiTokens(messages: List<ChatMessage>): Int {
+        return messages.sumOf { message ->
+            // Используем только tokensUsed из ResponseMetadata ответов бота
+            // Это total tokens для каждого запроса, включая prompt и completion
+            if (!message.isFromUser && message.responseMetadata != null) {
+                message.responseMetadata.tokensUsed
+            } else {
+                0
+            }
+        }
+    }
+
     fun sendMessage(text: String) {
         if (text.isBlank() || _isLoading.value) return
-
-        // Подсчитываем токены для сообщения пользователя
-        val manualTokenCount = TokenCounter.countTokens(text)
-
-        // Добавляем сообщение пользователя
-        val userMessage = ChatMessage(
-            text = text,
-            isFromUser = true,
-            manualTokenCount = manualTokenCount
-        )
-        _messages.value = _messages.value + userMessage
 
         // Отправляем запрос боту
         _isLoading.value = true
         _error.value = null
 
         viewModelScope.launch {
+            // Проверяем, нужно ли сжать историю перед добавлением нового сообщения
+            val currentMessages = _messages.value
+            val nonSummaryMessages = currentMessages.filter { !it.isSummary }
+            val compressionEnabled = getHistoryCompressionEnabled()
+            
+            val compressedMessages = if (compressionEnabled && nonSummaryMessages.size >= COMPRESSION_THRESHOLD) {
+                // Нужно сжать историю
+                Log.d("ChatViewModel", "Начинаем сжатие истории: ${nonSummaryMessages.size} не-summary сообщений")
+                
+                // Берем первые COMPRESSION_THRESHOLD не-summary сообщений для сжатия
+                // Собираем индексы сообщений для сжатия
+                val indicesToCompress = mutableListOf<Int>()
+                var count = 0
+                for ((index, message) in currentMessages.withIndex()) {
+                    if (!message.isSummary && count < COMPRESSION_THRESHOLD) {
+                        indicesToCompress.add(index)
+                        count++
+                    }
+                    if (count >= COMPRESSION_THRESHOLD) break
+                }
+                
+                // Получаем сообщения для сжатия
+                val messagesToCompress = indicesToCompress.map { currentMessages[it] }
+                
+                // Создаем summary
+                val systemPrompt = getSystemPrompt()
+                val model = getModel()
+                val summaryResult = historyCompressor.createSummary(messagesToCompress, model)
+                
+                summaryResult.fold(
+                    onSuccess = { summaryResult ->
+                        Log.d("ChatViewModel", "Summary создан успешно, длина: ${summaryResult.summary.length}, токенов: ${summaryResult.tokensUsed}")
+                        
+                        // Подсчитываем токены из сжатых сообщений
+                        val compressedTokens = messagesToCompress.sumOf { message ->
+                            if (!message.isFromUser && message.responseMetadata != null) {
+                                message.responseMetadata.tokensUsed
+                            } else {
+                                0
+                            }
+                        }
+                        
+                        // Сохраняем токены сжатых сообщений и токены создания summary
+                        val tokensToAccumulate = compressedTokens + summaryResult.tokensUsed
+                        _accumulatedCompressedTokens.value += tokensToAccumulate
+                        
+                        Log.d("ChatViewModel", "Накоплено токенов: ${_accumulatedCompressedTokens.value} (добавлено: $tokensToAccumulate)")
+                        
+                        // Создаем summary сообщение
+                        val summaryMessage = ChatMessage(
+                            text = summaryResult.summary,
+                            isFromUser = false,
+                            isSummary = true
+                        )
+                        // Удаляем сжатые сообщения и вставляем summary на их место
+                        val resultList = currentMessages.toMutableList()
+                        // Удаляем сообщения в обратном порядке, чтобы индексы не сдвигались
+                        indicesToCompress.sortedDescending().forEach { index ->
+                            resultList.removeAt(index)
+                        }
+                        // Вставляем summary на место первого удаленного сообщения
+                        val insertIndex = indicesToCompress.minOrNull() ?: 0
+                        resultList.add(insertIndex, summaryMessage)
+                        resultList
+                    },
+                    onFailure = { exception ->
+                        Log.e("ChatViewModel", "Ошибка при создании summary", exception)
+                        // В случае ошибки оставляем историю без изменений
+                        currentMessages
+                    }
+                )
+            } else {
+                // Сжатие не требуется
+                currentMessages
+            }
+            
+            // Подсчитываем токены для сообщения пользователя
+            val manualTokenCount = TokenCounter.countTokens(text)
+
+            // Добавляем сообщение пользователя
+            val userMessage = ChatMessage(
+                text = text,
+                isFromUser = true,
+                manualTokenCount = manualTokenCount
+            )
+            val messagesWithUser = compressedMessages + userMessage
+            _messages.value = messagesWithUser
+            
             val systemPrompt = getSystemPrompt()
             val temperature = getTemperature()
             val model = getModel()
-            val result = repository.sendMessage(text, _messages.value, systemPrompt, temperature, model)
+            val result = repository.sendMessage(text, compressedMessages, systemPrompt, temperature, model)
 
             result.onSuccess { (botResponse, metadata) ->
                 Log.d("ChatViewModel", "=== Создание ChatMessage ===")

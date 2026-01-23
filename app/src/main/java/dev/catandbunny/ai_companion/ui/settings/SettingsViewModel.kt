@@ -29,6 +29,10 @@ class SettingsViewModel : ViewModel() {
     private val _selectedModel = MutableStateFlow("gpt-3.5-turbo")
     val selectedModel: StateFlow<String> = _selectedModel.asStateFlow()
 
+    // Сжатие истории диалога (по умолчанию включено)
+    private val _historyCompressionEnabled = MutableStateFlow(true)
+    val historyCompressionEnabled: StateFlow<Boolean> = _historyCompressionEnabled.asStateFlow()
+
     fun updateSystemPrompt(newPrompt: String) {
         _systemPrompt.value = newPrompt
     }
@@ -49,4 +53,10 @@ class SettingsViewModel : ViewModel() {
     }
 
     fun getSelectedModel(): String = _selectedModel.value
+
+    fun updateHistoryCompressionEnabled(enabled: Boolean) {
+        _historyCompressionEnabled.value = enabled
+    }
+
+    fun getHistoryCompressionEnabled(): Boolean = _historyCompressionEnabled.value
 }

@@ -24,6 +24,7 @@ fun SettingsScreen(
     val systemPrompt by viewModel.systemPrompt.collectAsState()
     val temperature by viewModel.temperature.collectAsState()
     val selectedModel by viewModel.selectedModel.collectAsState()
+    val historyCompressionEnabled by viewModel.historyCompressionEnabled.collectAsState()
     val availableModels = viewModel.availableModels
     var showEditDialog by remember { mutableStateOf(false) }
     var showModelDropdown by remember { mutableStateOf(false) }
@@ -256,6 +257,63 @@ fun SettingsScreen(
                             }
                         }
                     }
+                }
+            }
+            
+            Spacer(modifier = Modifier.height(24.dp))
+            
+            // Заголовок секции сжатия истории
+            Text(
+                text = "Сжатие истории диалога",
+                style = MaterialTheme.typography.titleLarge
+            )
+            
+            // Описание сжатия истории
+            Text(
+                text = "При включении каждые 10 сообщений автоматически сжимаются в краткое резюме. " +
+                        "Это помогает экономить токены и поддерживать контекст в длинных диалогах.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            // Карточка с настройкой сжатия истории
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            text = "Включить сжатие истории",
+                            style = MaterialTheme.typography.labelLarge
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = if (historyCompressionEnabled) {
+                                "Сжатие активно"
+                            } else {
+                                "Сжатие отключено"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = historyCompressionEnabled,
+                        onCheckedChange = { enabled ->
+                            viewModel.updateHistoryCompressionEnabled(enabled)
+                        }
+                    )
                 }
             }
         }
