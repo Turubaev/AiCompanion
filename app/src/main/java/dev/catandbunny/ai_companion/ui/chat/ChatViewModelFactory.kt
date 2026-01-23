@@ -7,12 +7,13 @@ class ChatViewModelFactory(
     private val apiKey: String,
     private val getSystemPrompt: () -> String,
     private val getTemperature: () -> Double,
-    private val getModel: () -> String
+    private val getModel: () -> String,
+    private val getHistoryCompressionEnabled: () -> Boolean
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(ChatViewModel::class.java)) {
-            return ChatViewModel(apiKey, getSystemPrompt, getTemperature, getModel) as T
+            return ChatViewModel(apiKey, getSystemPrompt, getTemperature, getModel, getHistoryCompressionEnabled) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

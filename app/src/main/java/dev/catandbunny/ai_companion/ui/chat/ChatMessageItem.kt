@@ -75,26 +75,37 @@ fun ChatMessageItem(
                     )
                     .padding(12.dp)
             ) {
-                Text(
-                    text = message.text,
-                    style = MaterialTheme.typography.bodyMedium.copy(
-                        fontSize = 16.sp,
-                        // Используем моноширинный шрифт для JSON ответов (финальное ТЗ)
-                        fontFamily = if (!message.isFromUser && 
-                            message.responseMetadata != null && 
-                            message.responseMetadata.isRequirementsResponse) {
-                            FontFamily.Monospace
+                Column {
+                    // Показываем метку для summary сообщений
+                    if (message.isSummary) {
+                        Text(
+                            text = "📝 Сжатая история диалога",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            modifier = Modifier.padding(bottom = 4.dp)
+                        )
+                    }
+                    Text(
+                        text = message.text,
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            fontSize = 16.sp,
+                            // Используем моноширинный шрифт для JSON ответов (финальное ТЗ)
+                            fontFamily = if (!message.isFromUser && 
+                                message.responseMetadata != null && 
+                                message.responseMetadata.isRequirementsResponse) {
+                                FontFamily.Monospace
+                            } else {
+                                FontFamily.Default
+                            }
+                        ),
+                        color = if (message.isFromUser) {
+                            MaterialTheme.colorScheme.onPrimary
                         } else {
-                            FontFamily.Default
-                        }
-                    ),
-                    color = if (message.isFromUser) {
-                        MaterialTheme.colorScheme.onPrimary
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                    textAlign = if (message.isFromUser) TextAlign.End else TextAlign.Start
-                )
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        textAlign = if (message.isFromUser) TextAlign.End else TextAlign.Start
+                    )
+                }
             }
             
             // Информация о токенах для сообщений пользователя

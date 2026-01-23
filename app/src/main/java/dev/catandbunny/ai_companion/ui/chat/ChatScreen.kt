@@ -40,14 +40,15 @@ fun ChatScreen(
     // Получаем SettingsViewModel для доступа к системному промпту
     val settingsViewModel: SettingsViewModel = viewModel()
     
-    // Создаем ChatViewModel с функцией получения системного промпта, температуры и модели
+    // Создаем ChatViewModel с функцией получения системного промпта, температуры, модели и флага сжатия истории
     // Функция всегда будет получать актуальное значение из StateFlow
     val viewModel: ChatViewModel = viewModel(
         factory = ChatViewModelFactory(
             apiKey = ApiConfig.OPENAI_API_KEY,
             getSystemPrompt = { settingsViewModel.getSystemPrompt() },
             getTemperature = { settingsViewModel.getTemperature() },
-            getModel = { settingsViewModel.getSelectedModel() }
+            getModel = { settingsViewModel.getSelectedModel() },
+            getHistoryCompressionEnabled = { settingsViewModel.getHistoryCompressionEnabled() }
         )
     )
     
@@ -55,6 +56,7 @@ fun ChatScreen(
     val messages by viewModel.messages.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val error by viewModel.error.collectAsState()
+    val totalApiTokens by viewModel.totalApiTokens.collectAsState()
     var selectedMetadata by remember { mutableStateOf<ResponseMetadata?>(null) }
     var showSettings by remember { mutableStateOf(false) }
     
@@ -136,6 +138,15 @@ fun ChatScreen(
                     }
                 },
                 actions = {
+                    // Отображение общего количества API токенов
+                    if (totalApiTokens > 0) {
+                        Text(
+                            text = "Токены: $totalApiTokens",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.padding(horizontal = 8.dp)
+                        )
+                    }
                     IconButton(onClick = { showSettings = true }) {
                         Icon(
                             imageVector = Icons.Default.Settings,

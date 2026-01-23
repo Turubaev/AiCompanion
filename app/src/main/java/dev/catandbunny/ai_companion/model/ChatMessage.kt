@@ -6,7 +6,8 @@ data class ChatMessage(
     val timestamp: Long = System.currentTimeMillis(),
     val responseMetadata: ResponseMetadata? = null,
     val manualTokenCount: Int? = null, // Ручной подсчет токенов для сообщений пользователя
-    val apiTokenCount: Int? = null // Количество токенов запроса пользователя от API
+    val apiTokenCount: Int? = null, // Количество токенов запроса пользователя от API
+    val isSummary: Boolean = false // Флаг, указывающий, является ли сообщение сжатым summary предыдущих сообщений
 )
 
 data class ResponseMetadata(
