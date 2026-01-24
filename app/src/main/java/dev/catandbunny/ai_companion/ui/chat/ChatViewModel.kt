@@ -1,9 +1,9 @@
 package dev.catandbunny.ai_companion.ui.chat
 
-import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.catandbunny.ai_companion.data.repository.ChatRepository
+import dev.catandbunny.ai_companion.data.repository.DatabaseRepository
 import dev.catandbunny.ai_companion.model.ChatMessage
 import dev.catandbunny.ai_companion.utils.HistoryCompressor
 import dev.catandbunny.ai_companion.utils.TokenCounter
@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -20,7 +20,8 @@ class ChatViewModel(
     private val getSystemPrompt: () -> String,
     private val getTemperature: () -> Double,
     private val getModel: () -> String,
-    private val getHistoryCompressionEnabled: () -> Boolean
+    private val getHistoryCompressionEnabled: () -> Boolean,
+    private val databaseRepository: DatabaseRepository? = null
 ) : ViewModel() {
     private val repository = ChatRepository(apiKey)
     private val historyCompressor = HistoryCompressor(apiKey)
@@ -42,15 +43,51 @@ class ChatViewModel(
     private val _accumulatedCompressedTokens = MutableStateFlow(0)
     val accumulatedCompressedTokens: StateFlow<Int> = _accumulatedCompressedTokens.asStateFlow()
 
-    // Общее количество API токенов в переписке (текущие + накопленные)
-    val totalApiTokens: StateFlow<Int> = kotlinx.coroutines.flow.combine(
+    init {
+        // Загружаем данные из базы при инициализации
+        loadDataFromDatabase()
+        
+        // Сохраняем сообщения при изменении
+        viewModelScope.launch {
+            _messages.collect { messages ->
+                databaseRepository?.saveMessages(messages)
+            }
+        }
+        
+        // Сохраняем состояние разговора при изменении
+        viewModelScope.launch {
+            _accumulatedCompressedTokens.collect { tokens ->
+                databaseRepository?.saveConversationState(tokens)
+            }
+        }
+    }
+    
+    private fun loadDataFromDatabase() {
+        viewModelScope.launch {
+            try {
+                val savedMessages = databaseRepository?.loadMessages() ?: emptyList()
+                if (savedMessages.isNotEmpty()) {
+                    _messages.value = savedMessages
+                }
+                
+                val savedState = databaseRepository?.loadConversationState()
+                savedState?.let {
+                    _accumulatedCompressedTokens.value = it.accumulatedCompressedTokens
+                }
+            } catch (e: Exception) {
+                // Игнорируем ошибки загрузки
+            }
+        }
+    }
+
+    val totalApiTokens: StateFlow<Int> = combine(
         _messages,
         _accumulatedCompressedTokens
     ) { messages, accumulated ->
         calculateTotalApiTokens(messages) + accumulated
     }.stateIn(
         scope = viewModelScope,
-        started = kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000),
+        started = SharingStarted.WhileSubscribed(5000),
         initialValue = 0
     )
 
@@ -87,9 +124,6 @@ class ChatViewModel(
             val compressionEnabled = getHistoryCompressionEnabled()
             
             val compressedMessages = if (compressionEnabled && nonSummaryMessages.size >= COMPRESSION_THRESHOLD) {
-                // Нужно сжать историю
-                Log.d("ChatViewModel", "Начинаем сжатие истории: ${nonSummaryMessages.size} не-summary сообщений")
-                
                 // Берем первые COMPRESSION_THRESHOLD не-summary сообщений для сжатия
                 // Собираем индексы сообщений для сжатия
                 val indicesToCompress = mutableListOf<Int>()
@@ -112,8 +146,6 @@ class ChatViewModel(
                 
                 summaryResult.fold(
                     onSuccess = { summaryResult ->
-                        Log.d("ChatViewModel", "Summary создан успешно, длина: ${summaryResult.summary.length}, токенов: ${summaryResult.tokensUsed}")
-                        
                         // Подсчитываем токены из сжатых сообщений
                         val compressedTokens = messagesToCompress.sumOf { message ->
                             if (!message.isFromUser && message.responseMetadata != null) {
@@ -123,11 +155,8 @@ class ChatViewModel(
                             }
                         }
                         
-                        // Сохраняем токены сжатых сообщений и токены создания summary
                         val tokensToAccumulate = compressedTokens + summaryResult.tokensUsed
                         _accumulatedCompressedTokens.value += tokensToAccumulate
-                        
-                        Log.d("ChatViewModel", "Накоплено токенов: ${_accumulatedCompressedTokens.value} (добавлено: $tokensToAccumulate)")
                         
                         // Создаем summary сообщение
                         val summaryMessage = ChatMessage(
@@ -146,9 +175,7 @@ class ChatViewModel(
                         resultList.add(insertIndex, summaryMessage)
                         resultList
                     },
-                    onFailure = { exception ->
-                        Log.e("ChatViewModel", "Ошибка при создании summary", exception)
-                        // В случае ошибки оставляем историю без изменений
+                    onFailure = {
                         currentMessages
                     }
                 )
@@ -175,14 +202,6 @@ class ChatViewModel(
             val result = repository.sendMessage(text, compressedMessages, systemPrompt, temperature, model)
 
             result.onSuccess { (botResponse, metadata) ->
-                Log.d("ChatViewModel", "=== Создание ChatMessage ===")
-                Log.d("ChatViewModel", "botResponse length: ${botResponse.length}")
-                Log.d("ChatViewModel", "metadata.isRequirementsResponse: ${metadata.isRequirementsResponse}")
-                Log.d("ChatViewModel", "metadata.questionText: ${metadata.questionText}")
-                Log.d("ChatViewModel", "metadata.requirements: ${if (metadata.requirements != null) "present (${metadata.requirements?.length} chars)" else "null"}")
-                Log.d("ChatViewModel", "metadata.recommendations: ${if (metadata.recommendations != null) "present (${metadata.recommendations?.length} chars)" else "null"}")
-                Log.d("ChatViewModel", "metadata.confidence: ${metadata.confidence}")
-                
                 // Вычисляем токены текущего запроса пользователя от API
                 val currentPromptTokens = metadata.promptTokens ?: 0
                 val previousPromptTokens = _messages.value
@@ -215,11 +234,6 @@ class ChatViewModel(
                     responseMetadata = metadata
                 )
                 
-                Log.d("ChatViewModel", "=== ChatMessage создан ===")
-                Log.d("ChatViewModel", "botMessage.responseMetadata?.isRequirementsResponse: ${botMessage.responseMetadata?.isRequirementsResponse}")
-                Log.d("ChatViewModel", "userApiTokenCount: $userApiTokenCount (current: $currentPromptTokens, previous: $previousPromptTokens)")
-                
-                // Обновляем список сообщений: обновленное сообщение пользователя + ответ бота
                 _messages.value = updatedMessages + botMessage
                 _isLoading.value = false
             }.onFailure { exception ->

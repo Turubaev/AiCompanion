@@ -22,9 +22,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.catandbunny.ai_companion.config.ApiConfig
-import dev.catandbunny.ai_companion.model.ChatMessage
+import dev.catandbunny.ai_companion.data.local.AppDatabase
+import dev.catandbunny.ai_companion.data.repository.DatabaseRepository
 import dev.catandbunny.ai_companion.model.ResponseMetadata
 import dev.catandbunny.ai_companion.ui.json.JsonViewScreen
 import dev.catandbunny.ai_companion.ui.settings.SettingsScreen
@@ -37,8 +40,20 @@ fun ChatScreen(
     modifier: Modifier = Modifier,
     botAvatar: Painter? = null
 ) {
-    // Получаем SettingsViewModel для доступа к системному промпту
-    val settingsViewModel: SettingsViewModel = viewModel()
+    val context = LocalContext.current
+    
+    // Создаем базу данных и репозиторий
+    val database = remember { AppDatabase.getDatabase(context) }
+    val databaseRepository = remember { DatabaseRepository(database) }
+    
+    val settingsViewModel: SettingsViewModel = viewModel(
+        factory = object : ViewModelProvider.Factory {
+            @Suppress("UNCHECKED_CAST")
+            override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                return SettingsViewModel(databaseRepository) as T
+            }
+        }
+    )
     
     // Создаем ChatViewModel с функцией получения системного промпта, температуры, модели и флага сжатия истории
     // Функция всегда будет получать актуальное значение из StateFlow
@@ -48,7 +63,8 @@ fun ChatScreen(
             getSystemPrompt = { settingsViewModel.getSystemPrompt() },
             getTemperature = { settingsViewModel.getTemperature() },
             getModel = { settingsViewModel.getSelectedModel() },
-            getHistoryCompressionEnabled = { settingsViewModel.getHistoryCompressionEnabled() }
+            getHistoryCompressionEnabled = { settingsViewModel.getHistoryCompressionEnabled() },
+            databaseRepository = databaseRepository
         )
     )
     
@@ -59,8 +75,7 @@ fun ChatScreen(
     val totalApiTokens by viewModel.totalApiTokens.collectAsState()
     var selectedMetadata by remember { mutableStateOf<ResponseMetadata?>(null) }
     var showSettings by remember { mutableStateOf(false) }
-    
-    val context = LocalContext.current
+
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     val listState = rememberLazyListState()
@@ -95,7 +110,8 @@ fun ChatScreen(
     // Показываем экран настроек, если открыт
     if (showSettings) {
         SettingsScreen(
-            onBack = { showSettings = false }
+            onBack = { showSettings = false },
+            databaseRepository = databaseRepository
         )
         return
     }

@@ -1,15 +1,18 @@
 package dev.catandbunny.ai_companion.ui.settings
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import dev.catandbunny.ai_companion.data.repository.DatabaseRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.launch
 
-class SettingsViewModel : ViewModel() {
-    // Дефолтный системный промпт (пустой)
-    private val defaultSystemPrompt = ""
-
-    private val _systemPrompt = MutableStateFlow(defaultSystemPrompt)
+class SettingsViewModel(
+    private val databaseRepository: DatabaseRepository? = null
+) : ViewModel() {
+    private val _systemPrompt = MutableStateFlow("")
     val systemPrompt: StateFlow<String> = _systemPrompt.asStateFlow()
 
     // Температура модели (по умолчанию 0.7)
@@ -33,6 +36,39 @@ class SettingsViewModel : ViewModel() {
     private val _historyCompressionEnabled = MutableStateFlow(true)
     val historyCompressionEnabled: StateFlow<Boolean> = _historyCompressionEnabled.asStateFlow()
 
+    init {
+        // Загружаем настройки из базы при инициализации
+        loadSettingsFromDatabase()
+        
+        // Сохраняем настройки при изменении
+        viewModelScope.launch {
+            combine(
+                _systemPrompt,
+                _temperature,
+                _selectedModel,
+                _historyCompressionEnabled
+            ) { prompt, temp, model, compression ->
+                databaseRepository?.saveSettings(prompt, temp, model, compression)
+            }.collect {}
+        }
+    }
+    
+    private fun loadSettingsFromDatabase() {
+        viewModelScope.launch {
+            try {
+                val savedSettings = databaseRepository?.loadSettings()
+                savedSettings?.let {
+                    _systemPrompt.value = it.systemPrompt
+                    _temperature.value = it.temperature
+                    _selectedModel.value = it.selectedModel
+                    _historyCompressionEnabled.value = it.historyCompressionEnabled
+                }
+            } catch (e: Exception) {
+                // Игнорируем ошибки загрузки
+            }
+        }
+    }
+
     fun updateSystemPrompt(newPrompt: String) {
         _systemPrompt.value = newPrompt
     }
@@ -40,7 +76,6 @@ class SettingsViewModel : ViewModel() {
     fun getSystemPrompt(): String = _systemPrompt.value
 
     fun updateTemperature(newTemperature: Double) {
-        // Ограничиваем температуру диапазоном от 0.0 до 2.0
         _temperature.value = newTemperature.coerceIn(0.0, 2.0)
     }
 
