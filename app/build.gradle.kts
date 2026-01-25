@@ -68,6 +68,7 @@ dependencies {
     
     // ViewModel
     implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.lifecycle.process)
     
     // Networking
     implementation(libs.retrofit)

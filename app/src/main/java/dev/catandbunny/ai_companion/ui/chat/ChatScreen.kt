@@ -3,15 +3,14 @@ package dev.catandbunny.ai_companion.ui.chat
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
@@ -22,9 +21,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import dev.catandbunny.ai_companion.config.ApiConfig
 import dev.catandbunny.ai_companion.data.local.AppDatabase
 import dev.catandbunny.ai_companion.data.repository.DatabaseRepository
@@ -79,6 +83,41 @@ fun ChatScreen(
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     val listState = rememberLazyListState()
+    val lifecycleOwner = LocalLifecycleOwner.current
+    
+    // Отслеживаем lifecycle Activity
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            android.util.Log.d("ChatScreen", "Activity Lifecycle event: $event")
+            if (event == Lifecycle.Event.ON_PAUSE || event == Lifecycle.Event.ON_STOP) {
+                android.util.Log.d("ChatScreen", "Activity ON_PAUSE/ON_STOP, вызываем saveHistoryOnAppPause")
+                viewModel.saveHistoryOnAppPause()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            android.util.Log.d("ChatScreen", "DisposableEffect onDispose, вызываем saveHistoryOnAppPause")
+            viewModel.saveHistoryOnAppPause()
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+    
+    // Отслеживаем lifecycle процесса приложения (для принудительного завершения)
+    DisposableEffect(Unit) {
+        val processObserver = LifecycleEventObserver { _, event ->
+            android.util.Log.d("ChatScreen", "Process Lifecycle event: $event")
+            if (event == Lifecycle.Event.ON_STOP) {
+                android.util.Log.d("ChatScreen", "Process ON_STOP, вызываем saveHistoryOnAppPause")
+                viewModel.saveHistoryOnAppPause()
+            }
+        }
+        ProcessLifecycleOwner.get().lifecycle.addObserver(processObserver)
+        onDispose {
+            android.util.Log.d("ChatScreen", "ProcessLifecycleOwner DisposableEffect onDispose, вызываем saveHistoryOnAppPause")
+            viewModel.saveHistoryOnAppPause()
+            ProcessLifecycleOwner.get().lifecycle.removeObserver(processObserver)
+        }
+    }
     
     // Функция для копирования текста в буфер обмена
     val onCopyText: (String) -> Unit = { text ->
@@ -131,36 +170,22 @@ fun ChatScreen(
         modifier = modifier.fillMaxSize(),
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            // Заголовок приложения с поддержкой edgeToEdge - всегда закреплен сверху
             TopAppBar(
-                title = {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        if (botAvatar != null) {
-                            Image(
-                                painter = botAvatar,
-                                contentDescription = "Bot Avatar",
-                                modifier = Modifier
-                                    .size(32.dp)
-                                    .clip(CircleShape)
-                            )
-                        }
-                        Text(
-                            text = "AI Companion",
-                            style = MaterialTheme.typography.titleLarge
-                        )
-                    }
-                },
+                title = { },
                 actions = {
-                    // Отображение общего количества API токенов
                     if (totalApiTokens > 0) {
                         Text(
                             text = "Токены: $totalApiTokens",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
                             modifier = Modifier.padding(horizontal = 8.dp)
+                        )
+                    }
+                    IconButton(onClick = { viewModel.createNewChat() }) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = "Новый чат",
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer
                         )
                     }
                     IconButton(onClick = { showSettings = true }) {
@@ -258,21 +283,19 @@ fun ChatScreen(
             items(
                 items = messages,
                 key = { message -> 
-                    // Используем timestamp для уникальности - это стабильный ключ
-                    message.timestamp
+                    // Используем комбинацию timestamp, текста и isFromUser для уникальности
+                    // Это гарантирует уникальность даже если два сообщения созданы одновременно
+                    "${message.timestamp}_${message.text.hashCode()}_${message.isFromUser}"
                 }
             ) { message ->
-                // Используем key для стабильности компонента при перерисовке
-                key(message.timestamp) {
-                    ChatMessageItem(
-                        message = message,
-                        botAvatar = botAvatar,
-                        onShowJson = { metadata ->
-                            selectedMetadata = metadata
-                        },
-                        onCopyText = onCopyText
-                    )
-                }
+                ChatMessageItem(
+                    message = message,
+                    botAvatar = botAvatar,
+                    onShowJson = { metadata ->
+                        selectedMetadata = metadata
+                    },
+                    onCopyText = onCopyText
+                )
             }
             
             // Индикатор загрузки внизу списка

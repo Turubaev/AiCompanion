@@ -32,12 +32,43 @@ class ChatRepository(private val apiKey: String) {
             )
             
             // Формируем историю сообщений для контекста
-            val messages = listOf(systemPrompt) + conversationHistory.map { chatMessage ->
-                Message(
-                    role = if (chatMessage.isFromUser) "user" else "assistant",
-                    content = chatMessage.text
-                )
-            } + Message(role = "user", content = userMessage)
+            Log.d("ChatRepository", "=== sendMessage ===")
+            Log.d("ChatRepository", "conversationHistory.size: ${conversationHistory.size}")
+            conversationHistory.forEachIndexed { index, message ->
+                Log.d("ChatRepository", "conversationHistory[$index]: isSummary=${message.isSummary}, isFromUser=${message.isFromUser}, text=${message.text.take(150)}...")
+            }
+            
+            val summaryMessages = conversationHistory.filter { it.isSummary }
+            val regularMessages = conversationHistory.filter { !it.isSummary }
+            
+            val messages = buildList {
+                add(systemPrompt)
+                
+                if (summaryMessages.isNotEmpty()) {
+                    val summaryText = summaryMessages.joinToString("\n\n") { 
+                        "Резюме предыдущего разговора:\n${it.text}"
+                    }
+                    add(Message(
+                        role = "system",
+                        content = summaryText
+                    ))
+                }
+                
+                addAll(regularMessages.map { chatMessage ->
+                    Message(
+                        role = if (chatMessage.isFromUser) "user" else "assistant",
+                        content = chatMessage.text
+                    )
+                })
+                
+                add(Message(role = "user", content = userMessage))
+            }
+            
+            Log.d("ChatRepository", "=== Формируем messages для API ===")
+            Log.d("ChatRepository", "Всего messages: ${messages.size}")
+            messages.forEachIndexed { index, message ->
+                Log.d("ChatRepository", "messages[$index]: role=${message.role}, content=${message.content.take(150)}...")
+            }
 
             val request = OpenAIRequest(
                 model = model,
