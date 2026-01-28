@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
@@ -34,6 +35,7 @@ import dev.catandbunny.ai_companion.data.local.AppDatabase
 import dev.catandbunny.ai_companion.data.repository.DatabaseRepository
 import dev.catandbunny.ai_companion.model.ResponseMetadata
 import dev.catandbunny.ai_companion.ui.json.JsonViewScreen
+import dev.catandbunny.ai_companion.ui.mcp.McpToolsScreen
 import dev.catandbunny.ai_companion.ui.settings.SettingsScreen
 import dev.catandbunny.ai_companion.ui.settings.SettingsViewModel
 import kotlinx.coroutines.launch
@@ -79,6 +81,8 @@ fun ChatScreen(
     val totalApiTokens by viewModel.totalApiTokens.collectAsState()
     var selectedMetadata by remember { mutableStateOf<ResponseMetadata?>(null) }
     var showSettings by remember { mutableStateOf(false) }
+    var showMcpTools by remember { mutableStateOf(false) }
+    var showMenu by remember { mutableStateOf(false) }
 
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -155,6 +159,14 @@ fun ChatScreen(
         return
     }
     
+    // Показываем экран инструментов MCP, если открыт
+    if (showMcpTools) {
+        McpToolsScreen(
+            onBack = { showMcpTools = false }
+        )
+        return
+    }
+    
     // Показываем экран JSON, если выбран
     selectedMetadata?.let { metadata ->
         JsonViewScreen(
@@ -181,19 +193,52 @@ fun ChatScreen(
                             modifier = Modifier.padding(horizontal = 8.dp)
                         )
                     }
-                    IconButton(onClick = { viewModel.createNewChat() }) {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = "Новый чат",
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                    }
-                    IconButton(onClick = { showSettings = true }) {
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = "Настройки",
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
+                    Box {
+                        IconButton(onClick = { showMenu = true }) {
+                            Icon(
+                                imageVector = Icons.Default.MoreVert,
+                                contentDescription = "Меню",
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { showMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Настройки") },
+                                onClick = {
+                                    showSettings = true
+                                    showMenu = false
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.Settings,
+                                        contentDescription = null
+                                    )
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Новый чат") },
+                                onClick = {
+                                    viewModel.createNewChat()
+                                    showMenu = false
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.Add,
+                                        contentDescription = null
+                                    )
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Инструменты MCP") },
+                                onClick = {
+                                    showMcpTools = true
+                                    showMenu = false
+                                }
+                            )
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(

@@ -11,9 +11,15 @@ import dev.catandbunny.ai_companion.model.ChatMessage
 import dev.catandbunny.ai_companion.model.ResponseMetadata
 import dev.catandbunny.ai_companion.utils.CostCalculator
 import dev.catandbunny.ai_companion.utils.TokenCounter
+import dev.catandbunny.ai_companion.mcp.github.McpRepository
+import dev.catandbunny.ai_companion.mcp.github.McpToolDetector
+import dev.catandbunny.ai_companion.mcp.github.McpToolType
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class ChatRepository(private val apiKey: String) {
     private val openAIService = RetrofitClient.openAIService
+    private val mcpRepository = McpRepository()
 
     suspend fun sendMessage(
         userMessage: String,
@@ -25,10 +31,49 @@ class ChatRepository(private val apiKey: String) {
         return try {
             val startTime = System.currentTimeMillis()
             
+            // Проверяем нужен ли MCP инструмент
+            var mcpContext = ""
+            val needsMcp = McpToolDetector.needsMcpTool(userMessage)
+            Log.d("ChatRepository", "=== MCP Tool Detection ===")
+            Log.d("ChatRepository", "User message: $userMessage")
+            Log.d("ChatRepository", "Needs MCP tool: $needsMcp")
+            
+            if (needsMcp) {
+                Log.d("ChatRepository", "Вызываем MCP инструмент...")
+                mcpContext = withContext(Dispatchers.IO) {
+                    executeMcpTool(userMessage)
+                }
+                Log.d("ChatRepository", "MCP результат (первые 200 символов): ${mcpContext.take(200)}...")
+            } else {
+                Log.d("ChatRepository", "MCP инструмент не требуется")
+            }
+            
+            // Формируем расширенный системный промпт с информацией о MCP
+            val enhancedSystemPrompt = buildString {
+                append(systemPromptText)
+                if (mcpContext.isNotEmpty()) {
+                    append("\n\n")
+                    append("=== Данные из GitHub (через MCP) ===\n")
+                    append(mcpContext)
+                    append("\nИспользуй эту информацию для ответа на вопрос пользователя.")
+                } else {
+                    // Добавляем информацию о доступных инструментах
+                    append("\n\n")
+                    append("=== Доступные инструменты GitHub (через MCP) ===\n")
+                    append("У тебя есть доступ к GitHub через MCP инструменты. Ты можешь использовать их для:\n")
+                    append("- Получения списка репозиториев (спроси: 'покажи мои репозитории')\n")
+                    append("- Получения информации о репозитории (укажи owner/repo)\n")
+                    append("- Чтения файлов из репозиториев\n")
+                    append("- Поиска в коде\n")
+                    append("- Просмотра issues\n")
+                    append("Когда пользователь просит что-то связанное с GitHub, используй доступные инструменты.")
+                }
+            }
+            
             // Системный промпт - получаем из параметров
             val systemPrompt = Message(
                 role = "system",
-                content = systemPromptText
+                content = enhancedSystemPrompt
             )
             
             // Формируем историю сообщений для контекста
@@ -413,6 +458,140 @@ class ChatRepository(private val apiKey: String) {
             hasLatin && !hasCyrillic -> "en" // Английский
             hasCyrillic && hasLatin -> "mixed" // Смешанный
             else -> "unknown" // Неизвестный
+        }
+    }
+    
+    /**
+     * Выполняет MCP инструмент на основе запроса пользователя
+     */
+    private suspend fun executeMcpTool(userMessage: String): String {
+        return try {
+            // Инициализируем подключение если еще не подключены
+            if (!mcpRepository.isConnected()) {
+                val initResult = mcpRepository.initialize()
+                if (initResult.isFailure) {
+                    return "Ошибка подключения к MCP серверу: ${initResult.exceptionOrNull()?.message}"
+                }
+            }
+            
+            // Получаем список доступных инструментов
+            val toolsResult = mcpRepository.getAvailableTools()
+            if (toolsResult.isFailure) {
+                return "Ошибка получения списка инструментов: ${toolsResult.exceptionOrNull()?.message}"
+            }
+            
+            val availableTools = toolsResult.getOrNull() ?: emptyList()
+            Log.d("ChatRepository", "Доступные инструменты: ${availableTools.map { it.name }}")
+            
+            val toolType = McpToolDetector.detectTool(userMessage)
+            if (toolType == null) {
+                return "Не удалось определить нужный инструмент для запроса."
+            }
+            
+            // Находим нужный инструмент по типу
+            val toolName = when (toolType) {
+                McpToolType.LIST_REPOSITORIES -> {
+                    // Для списка репозиториев используем search_repositories
+                    availableTools.find { 
+                        it.name == "search_repositories" || 
+                        (it.name.contains("search", ignoreCase = true) && it.name.contains("repo", ignoreCase = true))
+                    }?.name ?: "search_repositories"
+                }
+                McpToolType.GET_REPOSITORY_INFO -> {
+                    // Информация о репозитории - можно использовать search_repositories с конкретным именем
+                    availableTools.find { 
+                        it.name == "search_repositories"
+                    }?.name ?: "search_repositories"
+                }
+                McpToolType.GET_FILE_CONTENT -> {
+                    availableTools.find { 
+                        it.name == "get_file_contents" || 
+                        (it.name.contains("file", ignoreCase = true) && it.name.contains("content", ignoreCase = true))
+                    }?.name ?: "get_file_contents"
+                }
+                McpToolType.SEARCH -> {
+                    availableTools.find { 
+                        it.name == "search_code" || 
+                        (it.name.contains("search", ignoreCase = true) && it.name.contains("code", ignoreCase = true))
+                    }?.name ?: "search_code"
+                }
+                McpToolType.LIST_ISSUES -> {
+                    availableTools.find { 
+                        it.name == "list_issues" || 
+                        (it.name.contains("list", ignoreCase = true) && it.name.contains("issue", ignoreCase = true))
+                    }?.name ?: "list_issues"
+                }
+            }
+            
+            if (toolName == null) {
+                return "Инструмент для запроса не найден. Доступные инструменты: ${availableTools.map { it.name }.joinToString(", ")}"
+            }
+            
+            Log.d("ChatRepository", "Используем инструмент: $toolName")
+            
+            val params = McpToolDetector.extractParameters(userMessage, toolType)
+            
+            // Вызываем инструмент напрямую через mcpRepository
+            val service = mcpRepository.getGitHubService()
+                ?: return "MCP сервис не инициализирован"
+            
+            val result = when (toolType) {
+                McpToolType.LIST_REPOSITORIES -> {
+                    // Для search_repositories используем query для поиска репозиториев
+                    // GitHub API требует непустой query и не принимает "*"
+                    // Если owner указан, ищем репозитории этого пользователя
+                    val owner = params["owner"]
+                    if (owner == null) {
+                        // Если owner не указан, возвращаем сообщение для бота
+                        return "Для получения списка репозиториев необходимо указать GitHub username пользователя. " +
+                               "Попросите пользователя указать его GitHub username или используйте формат: " +
+                               "'Покажи репозитории пользователя USERNAME' или 'Список репозиториев @USERNAME'"
+                    }
+                    
+                    val query = "user:$owner"
+                    val arguments = mapOf(
+                        "query" to query,
+                        "perPage" to 20
+                    )
+                    Log.d("ChatRepository", "Вызываем search_repositories с query: '$query' для owner: $owner")
+                    service.callTool(toolName, arguments)
+                }
+                McpToolType.GET_REPOSITORY_INFO -> {
+                    val owner = params["owner"] ?: return "Не указан owner репозитория"
+                    val repo = params["repo"] ?: return "Не указан repo"
+                    service.callTool(toolName, mapOf("owner" to owner, "repo" to repo))
+                }
+                McpToolType.GET_FILE_CONTENT -> {
+                    val owner = params["owner"] ?: return "Не указан owner репозитория"
+                    val repo = params["repo"] ?: return "Не указан repo"
+                    val path = params["path"] ?: "README.md"
+                    service.callTool(toolName, mapOf("owner" to owner, "repo" to repo, "path" to path))
+                }
+                McpToolType.SEARCH -> {
+                    val owner = params["owner"] ?: return "Не указан owner репозитория"
+                    val repo = params["repo"] ?: return "Не указан repo"
+                    val query = userMessage.substringAfter("найти").substringAfter("поиск")
+                        .substringAfter("search").trim().takeIf { it.isNotEmpty() } ?: "function"
+                    service.callTool(toolName, mapOf("owner" to owner, "repo" to repo, "query" to query))
+                }
+                McpToolType.LIST_ISSUES -> {
+                    val owner = params["owner"] ?: return "Не указан owner репозитория"
+                    val repo = params["repo"] ?: return "Не указан repo"
+                    service.callTool(toolName, mapOf("owner" to owner, "repo" to repo, "state" to "open", "limit" to 10))
+                }
+            }
+            
+            result.fold(
+                onSuccess = { toolResult ->
+                    toolResult.content
+                        .filter { it.type == "text" }
+                        .joinToString("\n") { it.text ?: "" }
+                },
+                onFailure = { "Ошибка выполнения MCP инструмента: ${it.message}" }
+            )
+        } catch (e: Exception) {
+            Log.e("ChatRepository", "Ошибка выполнения MCP инструмента", e)
+            "Ошибка выполнения MCP инструмента: ${e.message}"
         }
     }
 }
