@@ -11,9 +11,16 @@ import dev.catandbunny.ai_companion.model.ChatMessage
 import dev.catandbunny.ai_companion.model.ResponseMetadata
 import dev.catandbunny.ai_companion.utils.CostCalculator
 import dev.catandbunny.ai_companion.utils.TokenCounter
+import dev.catandbunny.ai_companion.mcp.github.McpRepository
+import dev.catandbunny.ai_companion.mcp.github.McpToolConverter
+import dev.catandbunny.ai_companion.data.model.Tool
+import dev.catandbunny.ai_companion.data.model.ToolCall
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class ChatRepository(private val apiKey: String) {
     private val openAIService = RetrofitClient.openAIService
+    private val mcpRepository = McpRepository()
 
     suspend fun sendMessage(
         userMessage: String,
@@ -25,7 +32,30 @@ class ChatRepository(private val apiKey: String) {
         return try {
             val startTime = System.currentTimeMillis()
             
-            // Системный промпт - получаем из параметров
+            // Инициализируем MCP если нужно
+            var mcpTools: List<Tool>? = null
+            withContext(Dispatchers.IO) {
+                if (!mcpRepository.isConnected()) {
+                    val initResult = mcpRepository.initialize()
+                    if (initResult.isSuccess) {
+                        val toolsResult = mcpRepository.getAvailableTools()
+                        if (toolsResult.isSuccess) {
+                            val mcpToolList = toolsResult.getOrNull() ?: emptyList()
+                            mcpTools = McpToolConverter.convertToOpenAITools(mcpToolList)
+                            Log.d("ChatRepository", "Загружено ${mcpTools?.size} MCP инструментов для Function Calling")
+                        }
+                    }
+                } else {
+                    // Если уже подключены, просто получаем инструменты
+                    val toolsResult = mcpRepository.getAvailableTools()
+                    if (toolsResult.isSuccess) {
+                        val mcpToolList = toolsResult.getOrNull() ?: emptyList()
+                        mcpTools = McpToolConverter.convertToOpenAITools(mcpToolList)
+                    }
+                }
+            }
+            
+            // Системный промпт
             val systemPrompt = Message(
                 role = "system",
                 content = systemPromptText
@@ -34,14 +64,11 @@ class ChatRepository(private val apiKey: String) {
             // Формируем историю сообщений для контекста
             Log.d("ChatRepository", "=== sendMessage ===")
             Log.d("ChatRepository", "conversationHistory.size: ${conversationHistory.size}")
-            conversationHistory.forEachIndexed { index, message ->
-                Log.d("ChatRepository", "conversationHistory[$index]: isSummary=${message.isSummary}, isFromUser=${message.isFromUser}, text=${message.text.take(150)}...")
-            }
             
             val summaryMessages = conversationHistory.filter { it.isSummary }
             val regularMessages = conversationHistory.filter { !it.isSummary }
             
-            val messages = buildList {
+            var messages = buildList {
                 add(systemPrompt)
                 
                 if (summaryMessages.isNotEmpty()) {
@@ -66,91 +93,198 @@ class ChatRepository(private val apiKey: String) {
             
             Log.d("ChatRepository", "=== Формируем messages для API ===")
             Log.d("ChatRepository", "Всего messages: ${messages.size}")
-            messages.forEachIndexed { index, message ->
-                Log.d("ChatRepository", "messages[$index]: role=${message.role}, content=${message.content.take(150)}...")
-            }
+            Log.d("ChatRepository", "MCP tools: ${mcpTools?.size ?: 0}")
 
-            val request = OpenAIRequest(
-                model = model,
-                messages = messages,
-                temperature = temperature,
-                maxTokens = 2000 // Увеличиваем для длинных ТЗ
-            )
-
-            val response = openAIService.createChatCompletion(
-                authorization = "Bearer $apiKey",
-                request = request
-            )
-
-            if (response.isSuccessful && response.body() != null) {
-                val responseBody = response.body()!!
-                val botResponse = responseBody.choices.firstOrNull()?.message?.content
-                    ?: "Извините, не удалось получить ответ."
-                
-                val responseTime = System.currentTimeMillis() - startTime
-                val tokensUsed = responseBody.usage.totalTokens
-                val promptTokens = responseBody.usage.promptTokens
-                val completionTokens = responseBody.usage.completionTokens
-                val timestamp = System.currentTimeMillis()
-                
-                // Ручной подсчет токенов для ответа бота
-                val manualTokenCount = TokenCounter.countTokens(botResponse)
-                
-                // Рассчитываем стоимость
-                val (costUSD, costRUB) = CostCalculator.calculateCost(
+            // Цикл вызова функций (может быть несколько итераций)
+            var maxIterations = 5
+            var finalResponse: String? = null
+            
+            while (maxIterations > 0 && finalResponse == null) {
+                val request = OpenAIRequest(
                     model = model,
-                    promptTokens = promptTokens,
-                    completionTokens = completionTokens
+                    messages = messages,
+                    temperature = temperature,
+                    maxTokens = 2000,
+                    tools = mcpTools
                 )
-                
-                // Пытаемся определить, является ли ответ JSON (финальный ТЗ) или текстовым (сбор требований)
-                Log.d("ChatRepository", "=== Парсинг ответа от бота ===")
-                Log.d("ChatRepository", "botResponse length: ${botResponse.length}")
-                Log.d("ChatRepository", "botResponse preview: ${botResponse.take(200)}...")
-                
-                val parseResult = parseResponse(botResponse, userMessage)
-                
-                Log.d("ChatRepository", "=== Результат парсинга ===")
-                Log.d("ChatRepository", "isRequirementsResponse: ${parseResult.isRequirementsResponse}")
-                Log.d("ChatRepository", "questionText: ${parseResult.questionText}")
-                Log.d("ChatRepository", "requirements: ${if (parseResult.requirements != null) "present (${parseResult.requirements?.length} chars)" else "null"}")
-                Log.d("ChatRepository", "recommendations: ${if (parseResult.recommendations != null) "present (${parseResult.recommendations?.length} chars)" else "null"}")
-                Log.d("ChatRepository", "confidence: ${parseResult.confidence}")
-                
-                val costFormatted = CostCalculator.formatCost(costUSD, costRUB)
-                
-                val metadata = ResponseMetadata(
-                    questionText = parseResult.questionText,
-                    answerText = parseResult.answerText,
-                    language = parseResult.language,
-                    timestamp = timestamp,
-                    responseTimeMs = responseTime,
-                    tokensUsed = tokensUsed,
-                    status = parseResult.status,
-                    botTimestamp = parseResult.botTimestamp,
-                    answerLength = parseResult.answerLength,
-                    category = parseResult.category,
-                    confidence = parseResult.confidence,
-                    requirements = parseResult.requirements,
-                    recommendations = parseResult.recommendations,
-                    isRequirementsResponse = parseResult.isRequirementsResponse,
-                    manualTokenCount = manualTokenCount,
-                    costFormatted = costFormatted,
-                    promptTokens = promptTokens
+
+                val response = openAIService.createChatCompletion(
+                    authorization = "Bearer $apiKey",
+                    request = request
                 )
-                
-                Log.d("ChatRepository", "=== Созданная ResponseMetadata ===")
-                Log.d("ChatRepository", "metadata.isRequirementsResponse: ${metadata.isRequirementsResponse}")
-                
-                // Возвращаем текст ответа без метаданных (метаданные отображаются под сообщением)
-                Result.success(Pair(parseResult.displayText, metadata))
-            } else {
-                val errorMessage = response.errorBody()?.string() 
-                    ?: "Ошибка при отправке запроса: ${response.code()}"
-                Result.failure(Exception(errorMessage))
+
+                if (response.isSuccessful && response.body() != null) {
+                    val responseBody = response.body()!!
+                    val choice = responseBody.choices.firstOrNull()
+                    val assistantMessage = choice?.message
+                    
+                    // Проверяем есть ли tool_calls
+                    val toolCalls = assistantMessage?.toolCalls
+                    
+                    if (toolCalls != null && toolCalls.isNotEmpty()) {
+                        Log.d("ChatRepository", "OpenAI запросил вызов ${toolCalls.size} инструментов")
+                        
+                        // Добавляем сообщение ассистента с tool_calls
+                        messages = messages + assistantMessage
+                        
+                        // Вызываем все запрошенные инструменты
+                        val toolResults = withContext(Dispatchers.IO) {
+                            toolCalls.map { toolCall ->
+                                val toolName = toolCall.function.name
+                                val argumentsJson = toolCall.function.arguments
+                                
+                                Log.d("ChatRepository", "Вызываем инструмент: $toolName с аргументами: $argumentsJson")
+                                
+                                val result = executeMcpToolByName(toolName, argumentsJson)
+                                
+                                Message(
+                                    role = "tool",
+                                    content = result,
+                                    toolCallId = toolCall.id
+                                )
+                            }
+                        }
+                        
+                        // Добавляем результаты инструментов
+                        messages = messages + toolResults
+                        
+                        maxIterations--
+                        continue // Повторяем запрос с результатами инструментов
+                    } else {
+                        // Нет tool_calls - это финальный ответ
+                        finalResponse = assistantMessage?.content ?: "Извините, не удалось получить ответ."
+                        
+                        val responseTime = System.currentTimeMillis() - startTime
+                        val tokensUsed = responseBody.usage.totalTokens
+                        val promptTokens = responseBody.usage.promptTokens
+                        val completionTokens = responseBody.usage.completionTokens
+                        val timestamp = System.currentTimeMillis()
+                        
+                        // Ручной подсчет токенов для ответа бота
+                        val manualTokenCount = TokenCounter.countTokens(finalResponse)
+                        
+                        // Рассчитываем стоимость
+                        val (costUSD, costRUB) = CostCalculator.calculateCost(
+                            model = model,
+                            promptTokens = promptTokens,
+                            completionTokens = completionTokens
+                        )
+                        
+                        // Пытаемся определить, является ли ответ JSON (финальный ТЗ) или текстовым (сбор требований)
+                        Log.d("ChatRepository", "=== Парсинг ответа от бота ===")
+                        Log.d("ChatRepository", "botResponse length: ${finalResponse.length}")
+                        Log.d("ChatRepository", "botResponse preview: ${finalResponse.take(200)}...")
+                        
+                        val parseResult = parseResponse(finalResponse, userMessage)
+                        
+                        Log.d("ChatRepository", "=== Результат парсинга ===")
+                        Log.d("ChatRepository", "isRequirementsResponse: ${parseResult.isRequirementsResponse}")
+                        Log.d("ChatRepository", "questionText: ${parseResult.questionText}")
+                        Log.d("ChatRepository", "requirements: ${if (parseResult.requirements != null) "present (${parseResult.requirements?.length} chars)" else "null"}")
+                        Log.d("ChatRepository", "recommendations: ${if (parseResult.recommendations != null) "present (${parseResult.recommendations?.length} chars)" else "null"}")
+                        Log.d("ChatRepository", "confidence: ${parseResult.confidence}")
+                        
+                        val costFormatted = CostCalculator.formatCost(costUSD, costRUB)
+                        
+                        val metadata = ResponseMetadata(
+                            questionText = parseResult.questionText,
+                            answerText = parseResult.answerText,
+                            language = parseResult.language,
+                            timestamp = timestamp,
+                            responseTimeMs = responseTime,
+                            tokensUsed = tokensUsed,
+                            status = parseResult.status,
+                            botTimestamp = parseResult.botTimestamp,
+                            answerLength = parseResult.answerLength,
+                            category = parseResult.category,
+                            confidence = parseResult.confidence,
+                            requirements = parseResult.requirements,
+                            recommendations = parseResult.recommendations,
+                            isRequirementsResponse = parseResult.isRequirementsResponse,
+                            manualTokenCount = manualTokenCount,
+                            costFormatted = costFormatted,
+                            promptTokens = promptTokens
+                        )
+                        
+                        Log.d("ChatRepository", "=== Созданная ResponseMetadata ===")
+                        Log.d("ChatRepository", "metadata.isRequirementsResponse: ${metadata.isRequirementsResponse}")
+                        
+                        // Возвращаем текст ответа без метаданных (метаданные отображаются под сообщением)
+                        return Result.success(Pair(parseResult.displayText, metadata))
+                    }
+                } else {
+                    val errorMessage = response.errorBody()?.string() 
+                        ?: "Ошибка при отправке запроса: ${response.code()}"
+                    return Result.failure(Exception(errorMessage))
+                }
             }
+            
+            // Если вышли из цикла без ответа
+            Result.failure(Exception("Превышено максимальное количество итераций вызова функций"))
         } catch (e: Exception) {
+            Log.e("ChatRepository", "Ошибка в sendMessage", e)
             Result.failure(e)
+        }
+    }
+    
+    /**
+     * Выполняет MCP инструмент по имени с JSON аргументами
+     */
+    private suspend fun executeMcpToolByName(toolName: String, argumentsJson: String): String {
+        return try {
+            val service = mcpRepository.getGitHubService()
+                ?: return "Ошибка: MCP сервис не инициализирован"
+            
+            // Парсим JSON аргументы
+            val gson = com.google.gson.Gson()
+            val argumentsMap = gson.fromJson(argumentsJson, Map::class.java) as? Map<String, Any>
+                ?: emptyMap()
+            
+            // Обрабатываем специальные случаи
+            val arguments = when (toolName) {
+                "search_repositories" -> {
+                    // Если query содержит placeholder "username", возвращаем сообщение
+                    val query = argumentsMap["query"]?.toString() ?: ""
+                    if (query.contains("user:username") || query == "user:username") {
+                        return "Для получения списка репозиториев необходимо указать реальный GitHub username. " +
+                               "Пожалуйста, укажите ваш GitHub username, например: 'Покажи репозитории пользователя octocat' " +
+                               "или 'Список репозиториев @username'"
+                    }
+                    argumentsMap
+                }
+                else -> argumentsMap
+            }
+            
+            Log.d("ChatRepository", "Выполняем инструмент $toolName с аргументами: $arguments")
+            
+            val result = service.callTool(toolName, arguments)
+            result.fold(
+                onSuccess = { toolResult ->
+                    val content = toolResult.content
+                        .filter { it.type == "text" }
+                        .joinToString("\n") { it.text ?: "" }
+                    
+                    // Если результат пустой или содержит ошибку валидации, возвращаем понятное сообщение
+                    if (content.contains("Validation Failed") || content.contains("cannot be searched")) {
+                        "Не удалось найти репозитории. Возможно, указан неверный username или у вас нет доступа. " +
+                        "Пожалуйста, укажите правильный GitHub username."
+                    } else {
+                        content
+                    }
+                },
+                onFailure = { 
+                    val errorMsg = it.message ?: "Неизвестная ошибка"
+                    // Улучшаем сообщение об ошибке
+                    if (errorMsg.contains("Validation Failed") || errorMsg.contains("cannot be searched")) {
+                        "Не удалось найти репозитории. Пожалуйста, укажите правильный GitHub username, например: 'Покажи репозитории пользователя octocat'"
+                    } else {
+                        "Ошибка выполнения инструмента $toolName: $errorMsg"
+                    }
+                }
+            )
+        } catch (e: Exception) {
+            Log.e("ChatRepository", "Ошибка выполнения MCP инструмента $toolName", e)
+            "Ошибка выполнения инструмента $toolName: ${e.message}"
         }
     }
     
@@ -415,4 +549,5 @@ class ChatRepository(private val apiKey: String) {
             else -> "unknown" // Неизвестный
         }
     }
+    
 }

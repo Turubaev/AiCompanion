@@ -9,13 +9,24 @@ android {
     namespace = "dev.catandbunny.ai_companion"
     compileSdk = 36
 
-    // Читаем API ключ из local.properties
+    // Читаем настройки из local.properties
     val localPropertiesFile = rootProject.file("local.properties")
     var openAiApiKey = ""
+    var mcpServerHost = "45.14.165.53"
+    var mcpServerPort = 8080
+    
     if (localPropertiesFile.exists()) {
         localPropertiesFile.readLines().forEach { line ->
-            if (line.startsWith("OPENAI_API_KEY=")) {
-                openAiApiKey = line.substringAfter("=").trim()
+            when {
+                line.startsWith("OPENAI_API_KEY=") -> {
+                    openAiApiKey = line.substringAfter("=").trim()
+                }
+                line.startsWith("MCP_SERVER_HOST=") -> {
+                    mcpServerHost = line.substringAfter("=").trim()
+                }
+                line.startsWith("MCP_SERVER_PORT=") -> {
+                    mcpServerPort = line.substringAfter("=").trim().toIntOrNull() ?: 8080
+                }
             }
         }
     }
@@ -29,8 +40,10 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        // Добавляем API ключ в BuildConfig
+        // Добавляем настройки в BuildConfig
         buildConfigField("String", "OPENAI_API_KEY", if (openAiApiKey.isNotEmpty()) "\"$openAiApiKey\"" else "\"\"")
+        buildConfigField("String", "MCP_SERVER_HOST", "\"$mcpServerHost\"")
+        buildConfigField("int", "MCP_SERVER_PORT", "$mcpServerPort")
     }
 
     buildTypes {
