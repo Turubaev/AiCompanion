@@ -142,8 +142,17 @@ data class ToolInputSchema(
 
 data class PropertySchema(
     @SerializedName("type")
-    val type: String,
+    val type: String? = null, // Может быть null для вложенных объектов
     
     @SerializedName("description")
-    val description: String? = null
+    val description: String? = null,
+    
+    @SerializedName("items")
+    val items: PropertySchema? = null, // Для массивов - схема элементов
+    
+    @SerializedName("properties")
+    val properties: Map<String, PropertySchema>? = null, // Для объектов - вложенные свойства
+    
+    @SerializedName("required")
+    val required: List<String>? = null // Для объектов - обязательные поля
 )
