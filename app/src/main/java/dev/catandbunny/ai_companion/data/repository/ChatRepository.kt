@@ -32,26 +32,28 @@ class ChatRepository(private val apiKey: String) {
         return try {
             val startTime = System.currentTimeMillis()
             
-            // Инициализируем MCP если нужно
+            // Инициализируем MCP если нужно и загружаем инструменты
             var mcpTools: List<Tool>? = null
             withContext(Dispatchers.IO) {
                 if (!mcpRepository.isConnected()) {
                     val initResult = mcpRepository.initialize()
-                    if (initResult.isSuccess) {
-                        val toolsResult = mcpRepository.getAvailableTools()
-                        if (toolsResult.isSuccess) {
-                            val mcpToolList = toolsResult.getOrNull() ?: emptyList()
-                            mcpTools = McpToolConverter.convertToOpenAITools(mcpToolList)
-                            Log.d("ChatRepository", "Загружено ${mcpTools?.size} MCP инструментов для Function Calling")
-                        }
+                    if (initResult.isFailure) {
+                        Log.w("ChatRepository", "Не удалось инициализировать MCP: ${initResult.exceptionOrNull()?.message}")
                     }
-                } else {
-                    // Если уже подключены, просто получаем инструменты
+                }
+                
+                // Всегда пытаемся загрузить инструменты, если подключение активно
+                if (mcpRepository.isConnected()) {
                     val toolsResult = mcpRepository.getAvailableTools()
                     if (toolsResult.isSuccess) {
                         val mcpToolList = toolsResult.getOrNull() ?: emptyList()
                         mcpTools = McpToolConverter.convertToOpenAITools(mcpToolList)
+                        Log.d("ChatRepository", "Загружено ${mcpTools?.size} MCP инструментов для Function Calling")
+                    } else {
+                        Log.w("ChatRepository", "Не удалось загрузить MCP инструменты: ${toolsResult.exceptionOrNull()?.message}")
                     }
+                } else {
+                    Log.w("ChatRepository", "MCP сервер не подключен, инструменты недоступны")
                 }
             }
             
