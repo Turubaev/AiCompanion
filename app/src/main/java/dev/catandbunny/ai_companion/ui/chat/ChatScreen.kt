@@ -6,7 +6,7 @@ import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -325,14 +325,13 @@ fun ChatScreen(
             contentPadding = PaddingValues(vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            items(
+            itemsIndexed(
                 items = messages,
-                key = { message -> 
-                    // Используем комбинацию timestamp, текста и isFromUser для уникальности
-                    // Это гарантирует уникальность даже если два сообщения созданы одновременно
-                    "${message.timestamp}_${message.text.hashCode()}_${message.isFromUser}"
+                key = { index, message ->
+                    // Индекс гарантирует уникальность ключа (timestamp+hashCode могут совпадать у разных сообщений)
+                    index
                 }
-            ) { message ->
+            ) { _, message ->
                 ChatMessageItem(
                     message = message,
                     botAvatar = botAvatar,

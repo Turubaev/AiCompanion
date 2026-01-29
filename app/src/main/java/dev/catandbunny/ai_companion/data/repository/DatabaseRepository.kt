@@ -46,7 +46,9 @@ class DatabaseRepository(private val database: AppDatabase) {
         systemPrompt: String,
         temperature: Double,
         selectedModel: String,
-        historyCompressionEnabled: Boolean
+        historyCompressionEnabled: Boolean,
+        currencyNotificationEnabled: Boolean = false,
+        currencyIntervalMinutes: Int = 5
     ) {
         try {
             val settings = SettingsEntity(
@@ -54,7 +56,9 @@ class DatabaseRepository(private val database: AppDatabase) {
                 systemPrompt = systemPrompt,
                 temperature = temperature,
                 selectedModel = selectedModel,
-                historyCompressionEnabled = historyCompressionEnabled
+                historyCompressionEnabled = historyCompressionEnabled,
+                currencyNotificationEnabled = currencyNotificationEnabled,
+                currencyIntervalMinutes = currencyIntervalMinutes
             )
             database.settingsDao().insertSettings(settings)
         } catch (e: Exception) {

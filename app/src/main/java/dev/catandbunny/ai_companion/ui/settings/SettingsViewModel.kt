@@ -9,6 +9,14 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
+private data class FiveSettings(
+    val prompt: String,
+    val temperature: Double,
+    val model: String,
+    val compression: Boolean,
+    val currencyEnabled: Boolean
+)
+
 class SettingsViewModel(
     private val databaseRepository: DatabaseRepository? = null
 ) : ViewModel() {
@@ -36,19 +44,38 @@ class SettingsViewModel(
     private val _historyCompressionEnabled = MutableStateFlow(true)
     val historyCompressionEnabled: StateFlow<Boolean> = _historyCompressionEnabled.asStateFlow()
 
+    // Уведомления о курсе USD/RUB (по умолчанию выключено)
+    private val _currencyNotificationEnabled = MutableStateFlow(false)
+    val currencyNotificationEnabled: StateFlow<Boolean> = _currencyNotificationEnabled.asStateFlow()
+
+    // Интервал запроса курса в минутах (1, 5, 15, 30)
+    val currencyIntervalOptions = listOf(1, 5, 15, 30)
+    private val _currencyIntervalMinutes = MutableStateFlow(5)
+    val currencyIntervalMinutes: StateFlow<Int> = _currencyIntervalMinutes.asStateFlow()
+
     init {
         // Загружаем настройки из базы при инициализации
         loadSettingsFromDatabase()
         
-        // Сохраняем настройки при изменении
+        // Сохраняем настройки при изменении (combine поддерживает до 5 потоков, поэтому два уровня)
         viewModelScope.launch {
             combine(
                 _systemPrompt,
                 _temperature,
                 _selectedModel,
-                _historyCompressionEnabled
-            ) { prompt, temp, model, compression ->
-                databaseRepository?.saveSettings(prompt, temp, model, compression)
+                _historyCompressionEnabled,
+                _currencyNotificationEnabled
+            ) { prompt, temp, model, compression, currencyEnabled ->
+                FiveSettings(prompt, temp, model, compression, currencyEnabled)
+            }.combine(_currencyIntervalMinutes) { five, currencyInterval ->
+                databaseRepository?.saveSettings(
+                    five.prompt,
+                    five.temperature,
+                    five.model,
+                    five.compression,
+                    currencyNotificationEnabled = five.currencyEnabled,
+                    currencyIntervalMinutes = currencyInterval
+                )
             }.collect {}
         }
     }
@@ -62,6 +89,8 @@ class SettingsViewModel(
                     _temperature.value = it.temperature
                     _selectedModel.value = it.selectedModel
                     _historyCompressionEnabled.value = it.historyCompressionEnabled
+                    _currencyNotificationEnabled.value = it.currencyNotificationEnabled
+                    _currencyIntervalMinutes.value = it.currencyIntervalMinutes.coerceIn(1, 30)
                 }
             } catch (e: Exception) {
                 // Игнорируем ошибки загрузки
@@ -94,4 +123,18 @@ class SettingsViewModel(
     }
 
     fun getHistoryCompressionEnabled(): Boolean = _historyCompressionEnabled.value
+
+    fun updateCurrencyNotificationEnabled(enabled: Boolean) {
+        _currencyNotificationEnabled.value = enabled
+    }
+
+    fun getCurrencyNotificationEnabled(): Boolean = _currencyNotificationEnabled.value
+
+    fun updateCurrencyIntervalMinutes(minutes: Int) {
+        if (minutes in currencyIntervalOptions) {
+            _currencyIntervalMinutes.value = minutes
+        }
+    }
+
+    fun getCurrencyIntervalMinutes(): Int = _currencyIntervalMinutes.value
 }

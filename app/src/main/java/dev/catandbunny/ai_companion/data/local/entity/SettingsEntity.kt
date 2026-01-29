@@ -10,5 +10,9 @@ data class SettingsEntity(
     val systemPrompt: String = "",
     val temperature: Double = 0.7,
     val selectedModel: String = "gpt-3.5-turbo",
-    val historyCompressionEnabled: Boolean = true
+    val historyCompressionEnabled: Boolean = true,
+    /** Включены ли пуш-уведомления о курсе USD/RUB */
+    val currencyNotificationEnabled: Boolean = false,
+    /** Интервал запроса курса в минутах (1, 5, 15, 30) */
+    val currencyIntervalMinutes: Int = 5
 )
