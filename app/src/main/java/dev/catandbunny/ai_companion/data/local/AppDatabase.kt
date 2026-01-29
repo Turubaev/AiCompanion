@@ -5,6 +5,8 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import dev.catandbunny.ai_companion.data.local.converter.ResponseMetadataConverter
 import dev.catandbunny.ai_companion.data.local.dao.ChatMessageDao
 import dev.catandbunny.ai_companion.data.local.dao.ConversationStateDao
@@ -19,7 +21,7 @@ import dev.catandbunny.ai_companion.data.local.entity.SettingsEntity
         SettingsEntity::class,
         ConversationStateEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 @TypeConverters(ResponseMetadataConverter::class)
@@ -32,6 +34,17 @@ abstract class AppDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
+        private val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE settings ADD COLUMN currencyNotificationEnabled INTEGER NOT NULL DEFAULT 0"
+                )
+                db.execSQL(
+                    "ALTER TABLE settings ADD COLUMN currencyIntervalMinutes INTEGER NOT NULL DEFAULT 5"
+                )
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -39,7 +52,8 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "ai_companion_database"
                 )
-                    .fallbackToDestructiveMigration() // Для разработки - удаляет данные при изменении схемы
+                    .addMigrations(MIGRATION_1_2)
+                    .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance
                 instance

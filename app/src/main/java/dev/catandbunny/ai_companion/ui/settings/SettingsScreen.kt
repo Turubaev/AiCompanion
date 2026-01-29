@@ -12,11 +12,18 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
+import android.Manifest
+import android.os.Build
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.catandbunny.ai_companion.data.repository.DatabaseRepository
+import dev.catandbunny.ai_companion.worker.CurrencyScheduler
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -36,9 +43,20 @@ fun SettingsScreen(
     val temperature by viewModel.temperature.collectAsState()
     val selectedModel by viewModel.selectedModel.collectAsState()
     val historyCompressionEnabled by viewModel.historyCompressionEnabled.collectAsState()
+    val currencyNotificationEnabled by viewModel.currencyNotificationEnabled.collectAsState()
+    val currencyIntervalMinutes by viewModel.currencyIntervalMinutes.collectAsState()
     val availableModels = viewModel.availableModels
+    val context = LocalContext.current
+    val requestNotificationPermission = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            CurrencyScheduler.schedule(context, viewModel.getCurrencyIntervalMinutes())
+        }
+    }
     var showEditDialog by remember { mutableStateOf(false) }
     var showModelDropdown by remember { mutableStateOf(false) }
+    var showCurrencyIntervalDropdown by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -325,6 +343,125 @@ fun SettingsScreen(
                             viewModel.updateHistoryCompressionEnabled(enabled)
                         }
                     )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // Заголовок секции уведомлений о курсе
+            Text(
+                text = "Уведомления о курсе USD/RUB",
+                style = MaterialTheme.typography.titleLarge
+            )
+
+            Text(
+                text = "Периодически запрашивать курс рубля к доллару через MCP сервер и показывать пуш-уведомление.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Карточка: включить уведомления + интервал
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Уведомления о курсе",
+                                style = MaterialTheme.typography.labelLarge
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = if (currencyNotificationEnabled) {
+                                    "Каждые $currencyIntervalMinutes мин"
+                                } else {
+                                    "Выключено"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = currencyNotificationEnabled,
+                            onCheckedChange = { enabled ->
+                                viewModel.updateCurrencyNotificationEnabled(enabled)
+                                if (enabled) {
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                        when (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)) {
+                                            android.content.pm.PackageManager.PERMISSION_GRANTED ->
+                                                CurrencyScheduler.schedule(context, viewModel.getCurrencyIntervalMinutes())
+                                            else ->
+                                                requestNotificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                        }
+                                    } else {
+                                        CurrencyScheduler.schedule(context, viewModel.getCurrencyIntervalMinutes())
+                                    }
+                                } else {
+                                    CurrencyScheduler.cancel(context)
+                                }
+                            }
+                        )
+                    }
+                    if (currencyNotificationEnabled) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "Интервал запроса",
+                            style = MaterialTheme.typography.labelMedium
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Box {
+                            OutlinedTextField(
+                                value = "$currencyIntervalMinutes мин",
+                                onValueChange = { },
+                                readOnly = true,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { showCurrencyIntervalDropdown = true },
+                                trailingIcon = {
+                                    IconButton(onClick = { showCurrencyIntervalDropdown = true }) {
+                                        Icon(
+                                            imageVector = Icons.Default.ArrowDropDown,
+                                            contentDescription = "Выбрать интервал"
+                                        )
+                                    }
+                                },
+                                label = { Text("Интервал") }
+                            )
+                            DropdownMenu(
+                                expanded = showCurrencyIntervalDropdown,
+                                onDismissRequest = { showCurrencyIntervalDropdown = false }
+                            ) {
+                                viewModel.currencyIntervalOptions.forEach { minutes ->
+                                    DropdownMenuItem(
+                                        text = { Text("$minutes мин") },
+                                        onClick = {
+                                            viewModel.updateCurrencyIntervalMinutes(minutes)
+                                            CurrencyScheduler.schedule(context, minutes)
+                                            showCurrencyIntervalDropdown = false
+                                        },
+                                        leadingIcon = {
+                                            RadioButton(
+                                                selected = minutes == currencyIntervalMinutes,
+                                                onClick = null
+                                            )
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

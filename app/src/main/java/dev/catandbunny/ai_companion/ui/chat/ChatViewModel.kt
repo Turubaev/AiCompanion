@@ -490,4 +490,25 @@ class ChatViewModel(
     fun clearError() {
         _error.value = null
     }
+
+    /**
+     * Добавляет сообщение от бота в чат (например, текст из пуш-уведомления о курсе).
+     */
+    fun addBotMessage(text: String) {
+        if (text.isBlank()) return
+        val botMessage = ChatMessage(
+            text = text,
+            isFromUser = false
+        )
+        _messages.value = _messages.value + botMessage
+        viewModelScope.launch {
+            try {
+                withContext(NonCancellable) {
+                    databaseRepository?.saveMessages(_messages.value)
+                }
+            } catch (e: Exception) {
+                Log.e("ChatViewModel", "Ошибка сохранения при добавлении сообщения из уведомления", e)
+            }
+        }
+    }
 }
