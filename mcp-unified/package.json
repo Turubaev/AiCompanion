@@ -1,0 +1,21 @@
+{
+  "name": "unified-mcp-server",
+  "version": "1.0.0",
+  "description": "Объединенный MCP сервер с инструментами GitHub и Currency",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "keywords": [
+    "mcp",
+    "github",
+    "currency",
+    "unified"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  }
+}
