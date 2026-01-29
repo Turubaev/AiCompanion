@@ -7,8 +7,12 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import dev.catandbunny.ai_companion.config.ApiConfig
 import dev.catandbunny.ai_companion.config.McpConfig
+import dev.catandbunny.ai_companion.data.api.RetrofitClient
 import dev.catandbunny.ai_companion.data.local.AppDatabase
+import dev.catandbunny.ai_companion.data.model.Message
+import dev.catandbunny.ai_companion.data.model.OpenAIRequest
 import dev.catandbunny.ai_companion.mcp.github.McpClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -55,16 +59,19 @@ class CurrencyWorker(
                     return@withContext Result.success()
                 }
                 val result = callResult.getOrNull()!!
-                val text = result.content
+                val rateText = result.content
                     .filter { it.type == "text" && it.text != null }
                     .joinToString("\n") { it.text!! }
-                if (result.isError || text.isBlank()) {
+                    .trim()
+                if (result.isError || rateText.isBlank()) {
                     showErrorNotification("Ошибка ответа MCP")
                 } else {
+                    val rateLine = rateText.lines().firstOrNull() ?: rateText
+                    val notificationBody = addJokeFromLlm(rateText, rateLine, settings.selectedModel)
                     CurrencyNotificationHelper.showRateNotification(
                         applicationContext,
                         "Курс USD/RUB",
-                        text.trim().lines().firstOrNull() ?: text.trim()
+                        notificationBody
                     )
                 }
             } finally {
@@ -79,6 +86,51 @@ class CurrencyWorker(
             Result.retry()
         }
     }
+
+    /**
+     * Отправляет курс в LLM и возвращает строку для уведомления: курс + краткая шутка.
+     * При ошибке или отсутствии ключа возвращает только строку с курсом.
+     */
+    private suspend fun addJokeFromLlm(rateText: String, rateLine: String, model: String): String =
+        withContext(Dispatchers.IO) {
+            val apiKey = ApiConfig.OPENAI_API_KEY
+            if (apiKey.isBlank()) {
+                Log.d(TAG, "OpenAI API ключ не задан, показываем только курс")
+                return@withContext rateLine
+            }
+            val systemPrompt = "Ты бот. Тебе дают текущий курс доллара к рублю (USD/RUB). " +
+                "Ответь одной короткой смешной фразой или каламбуром про этот курс (до 100 символов). " +
+                "Пиши только шутку, без повтора цифр курса."
+            val request = OpenAIRequest(
+                model = model,
+                messages = listOf(
+                    Message(role = "system", content = systemPrompt),
+                    Message(role = "user", content = rateText)
+                ),
+                temperature = 0.8,
+                maxTokens = 120
+            )
+            try {
+                val response = RetrofitClient.openAIService.createChatCompletion(
+                    authorization = "Bearer $apiKey",
+                    request = request
+                )
+                if (!response.isSuccessful) {
+                    Log.e(TAG, "OpenAI error: ${response.code()}")
+                    return@withContext rateLine
+                }
+                val body = response.body() ?: return@withContext rateLine
+                val joke = body.choices.firstOrNull()?.message?.content?.trim()
+                if (!joke.isNullOrBlank()) {
+                    "$rateLine\n\n$joke"
+                } else {
+                    rateLine
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Ошибка вызова OpenAI", e)
+                rateLine
+            }
+        }
 
     private fun showErrorNotification(message: String) {
         CurrencyNotificationHelper.showRateNotification(

@@ -38,6 +38,8 @@ import dev.catandbunny.ai_companion.ui.json.JsonViewScreen
 import dev.catandbunny.ai_companion.ui.mcp.McpToolsScreen
 import dev.catandbunny.ai_companion.ui.settings.SettingsScreen
 import dev.catandbunny.ai_companion.ui.settings.SettingsViewModel
+import dev.catandbunny.ai_companion.worker.PendingCurrencyNotification
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -83,6 +85,16 @@ fun ChatScreen(
     var showSettings by remember { mutableStateOf(false) }
     var showMcpTools by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
+
+    // При открытии из пуш-уведомления о курсе — добавляем текст в чат как сообщение бота
+    LaunchedEffect(Unit) {
+        PendingCurrencyNotification.messageFlow.collectLatest { pendingMessage ->
+            pendingMessage?.let { text ->
+                viewModel.addBotMessage(text)
+                PendingCurrencyNotification.setPendingMessage(null)
+            }
+        }
+    }
 
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
