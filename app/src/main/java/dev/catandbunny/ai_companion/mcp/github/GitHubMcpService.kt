@@ -176,7 +176,7 @@ class GitHubMcpService(private val mcpClient: McpClient) {
      * Извлечь текстовое содержимое из результата
      */
     private fun extractTextContent(result: CallToolResult): String {
-        return result.content
+        return (result.content ?: emptyList())
             .filter { it.type == "text" }
             .joinToString("\n") { it.text ?: "" }
     }

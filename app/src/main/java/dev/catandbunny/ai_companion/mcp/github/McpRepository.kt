@@ -3,6 +3,7 @@ package dev.catandbunny.ai_companion.mcp.github
 import android.util.Log
 import dev.catandbunny.ai_companion.config.McpConfig
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 /**
@@ -19,7 +20,8 @@ class McpRepository {
     }
 
     /**
-     * Инициализация и подключение к MCP серверу
+     * Инициализация и подключение к MCP серверу.
+     * При первой неудаче (например, "пустой ответ") делается одна повторная попытка через 2 сек.
      */
     suspend fun initialize(): Result<Unit> = withContext(Dispatchers.IO) {
         try {
@@ -28,18 +30,25 @@ class McpRepository {
                 return@withContext Result.success(Unit)
             }
 
-            mcpClient = McpClient(
-                host = McpConfig.MCP_SERVER_HOST,
-                port = McpConfig.MCP_SERVER_PORT
-            )
-            
-            gitHubService = GitHubMcpService(mcpClient!!)
-            
-            val result = gitHubService!!.initialize()
+            suspend fun tryConnect(): Result<Unit> {
+                mcpClient = McpClient(
+                    host = McpConfig.MCP_SERVER_HOST,
+                    port = McpConfig.MCP_SERVER_PORT
+                )
+                gitHubService = GitHubMcpService(mcpClient!!)
+                return gitHubService!!.initialize()
+            }
+
+            var result = tryConnect()
+            if (result.isFailure) {
+                Log.w(TAG, "Первая попытка MCP не удалась, повтор через 2 сек...")
+                cleanup()
+                delay(2000)
+                result = tryConnect()
+            }
             if (result.isFailure) {
                 cleanup()
             }
-            
             result
         } catch (e: Exception) {
             Log.e(TAG, "Ошибка инициализации репозитория", e)

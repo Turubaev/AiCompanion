@@ -53,11 +53,12 @@ class SettingsViewModel(
     private val _currencyIntervalMinutes = MutableStateFlow(5)
     val currencyIntervalMinutes: StateFlow<Int> = _currencyIntervalMinutes.asStateFlow()
 
+    // Telegram chat_id для отправки рекомендаций (портфель и т.д.)
+    private val _telegramChatId = MutableStateFlow("")
+    val telegramChatId: StateFlow<String> = _telegramChatId.asStateFlow()
+
     init {
-        // Загружаем настройки из базы при инициализации
         loadSettingsFromDatabase()
-        
-        // Сохраняем настройки при изменении (combine поддерживает до 5 потоков, поэтому два уровня)
         viewModelScope.launch {
             combine(
                 _systemPrompt,
@@ -68,13 +69,17 @@ class SettingsViewModel(
             ) { prompt, temp, model, compression, currencyEnabled ->
                 FiveSettings(prompt, temp, model, compression, currencyEnabled)
             }.combine(_currencyIntervalMinutes) { five, currencyInterval ->
+                Pair(five, currencyInterval)
+            }.combine(_telegramChatId) { pair, chatId ->
+                val (five, interval) = pair
                 databaseRepository?.saveSettings(
                     five.prompt,
                     five.temperature,
                     five.model,
                     five.compression,
                     currencyNotificationEnabled = five.currencyEnabled,
-                    currencyIntervalMinutes = currencyInterval
+                    currencyIntervalMinutes = interval,
+                    telegramChatId = chatId
                 )
             }.collect {}
         }
@@ -91,6 +96,7 @@ class SettingsViewModel(
                     _historyCompressionEnabled.value = it.historyCompressionEnabled
                     _currencyNotificationEnabled.value = it.currencyNotificationEnabled
                     _currencyIntervalMinutes.value = it.currencyIntervalMinutes.coerceIn(1, 30)
+                    _telegramChatId.value = it.telegramChatId
                 }
             } catch (e: Exception) {
                 // Игнорируем ошибки загрузки
@@ -137,4 +143,10 @@ class SettingsViewModel(
     }
 
     fun getCurrencyIntervalMinutes(): Int = _currencyIntervalMinutes.value
+
+    fun updateTelegramChatId(chatId: String) {
+        _telegramChatId.value = chatId.trim()
+    }
+
+    fun getTelegramChatId(): String = _telegramChatId.value
 }

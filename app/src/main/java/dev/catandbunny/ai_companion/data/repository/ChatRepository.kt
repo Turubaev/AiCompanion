@@ -16,9 +16,13 @@ import dev.catandbunny.ai_companion.mcp.github.McpToolConverter
 import dev.catandbunny.ai_companion.data.model.Tool
 import dev.catandbunny.ai_companion.data.model.ToolCall
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
-class ChatRepository(private val apiKey: String) {
+class ChatRepository(
+    private val apiKey: String,
+    private val getTelegramChatId: () -> String = { "" }
+) {
     private val openAIService = RetrofitClient.openAIService
     private val mcpRepository = McpRepository()
 
@@ -44,13 +48,22 @@ class ChatRepository(private val apiKey: String) {
                 
                 // Всегда пытаемся загрузить инструменты, если подключение активно
                 if (mcpRepository.isConnected()) {
-                    val toolsResult = mcpRepository.getAvailableTools()
+                    var toolsResult = mcpRepository.getAvailableTools()
+                    if (toolsResult.isFailure) {
+                        Log.w("ChatRepository", "Не удалось загрузить MCP инструменты: ${toolsResult.exceptionOrNull()?.message}, переподключаемся и повторяем")
+                        mcpRepository.disconnect()
+                        delay(1000)
+                        val reInit = mcpRepository.initialize()
+                        if (reInit.isSuccess) {
+                            toolsResult = mcpRepository.getAvailableTools()
+                        }
+                    }
                     if (toolsResult.isSuccess) {
                         val mcpToolList = toolsResult.getOrNull() ?: emptyList()
                         mcpTools = McpToolConverter.convertToOpenAITools(mcpToolList)
-                        Log.d("ChatRepository", "Загружено ${mcpTools?.size} MCP инструментов для Function Calling")
+                        Log.d("ChatRepository", "Загружено ${mcpTools?.size} MCP инструментов для Function Calling: ${mcpTools?.map { it.function.name }}")
                     } else {
-                        Log.w("ChatRepository", "Не удалось загрузить MCP инструменты: ${toolsResult.exceptionOrNull()?.message}")
+                        Log.w("ChatRepository", "Не удалось загрузить MCP инструменты после retry: ${toolsResult.exceptionOrNull()?.message}")
                     }
                 } else {
                     Log.w("ChatRepository", "MCP сервер не подключен, инструменты недоступны")
@@ -80,6 +93,19 @@ class ChatRepository(private val apiKey: String) {
                     add(Message(
                         role = "system",
                         content = summaryText
+                    ))
+                }
+                // Подсказка для send_telegram_message, если пользователь просил рекомендации в Telegram
+                if (mcpTools?.any { it.function.name == "send_telegram_message" } == true) {
+                    add(Message(
+                        role = "system",
+                        content = """
+                        Если пользователь просит отправить рекомендации по инвестициям в Telegram:
+                        1. СНАЧАЛА вызови get_instruments_for_budget (budget_rub=сумма пользователя), чтобы получить реальные бумаги (акции, облигации, ETF).
+                        2. Сформируй полноценные рекомендации на основе данных (тикеры, цены, сколько лотов купить, как распределить бюджет).
+                        3. Вызови send_telegram_message с этим ПОЛНЫМ текстом рекомендаций (а не фразой «рекомендации отправлены»).
+                        4. В чате напиши только короткое подтверждение: «Рекомендации отправлены в Telegram», без дублирования текста рекомендаций.
+                        """.trimIndent()
                     ))
                 }
                 
@@ -245,7 +271,6 @@ class ChatRepository(private val apiKey: String) {
             // Обрабатываем специальные случаи
             val arguments = when (toolName) {
                 "search_repositories" -> {
-                    // Если query содержит placeholder "username", возвращаем сообщение
                     val query = argumentsMap["query"]?.toString() ?: ""
                     if (query.contains("user:username") || query == "user:username") {
                         return "Для получения списка репозиториев необходимо указать реальный GitHub username. " +
@@ -254,36 +279,63 @@ class ChatRepository(private val apiKey: String) {
                     }
                     argumentsMap
                 }
+                "send_telegram_message" -> {
+                    val chatId = getTelegramChatId().trim()
+                    if (chatId.isEmpty()) {
+                        return "Telegram Chat ID не настроен. Пользователь может указать его в Настройках приложения (секция «Telegram для рекомендаций»)."
+                    }
+                    (argumentsMap.toMutableMap()).apply { put("chat_id", chatId) }
+                }
                 else -> argumentsMap
             }
             
-            Log.d("ChatRepository", "Выполняем инструмент $toolName с аргументами: $arguments")
+            Log.d("ChatRepository", "Выполняем инструмент $toolName с аргументами: ${if (toolName == "send_telegram_message") "chat_id=***, text.length=${(arguments["text"] as? String)?.length}" else arguments}")
             
             val result = service.callTool(toolName, arguments)
-            result.fold(
+            val toolResultStr = result.fold(
                 onSuccess = { toolResult ->
-                    val content = toolResult.content
+                    val contentList = toolResult.content ?: emptyList()
+                    val content = contentList
                         .filter { it.type == "text" }
                         .joinToString("\n") { it.text ?: "" }
+                    
+                    if (toolName == "send_telegram_message") {
+                        Log.d("ChatRepository", "send_telegram_message: isError=${toolResult.isError}, content=$content")
+                    }
                     
                     // Если результат пустой или содержит ошибку валидации, возвращаем понятное сообщение
                     if (content.contains("Validation Failed") || content.contains("cannot be searched")) {
                         "Не удалось найти репозитории. Возможно, указан неверный username или у вас нет доступа. " +
                         "Пожалуйста, укажите правильный GitHub username."
-                    } else {
-                        content
+                    } else when (toolName) {
+                        "send_telegram_message" -> {
+                            if (toolResult.isError || content.lowercase().contains("error") || content.lowercase().contains("ошибка")) {
+                                "Ошибка отправки в Telegram: $content"
+                            } else {
+                                "Сообщение успешно отправлено в Telegram. В чате напиши только короткое подтверждение пользователю (например: «Рекомендации отправлены в Telegram») и не дублируй текст рекомендаций."
+                            }
+                        }
+                        else -> content
                     }
                 },
                 onFailure = { 
                     val errorMsg = it.message ?: "Неизвестная ошибка"
-                    // Улучшаем сообщение об ошибке
-                    if (errorMsg.contains("Validation Failed") || errorMsg.contains("cannot be searched")) {
+                    if (toolName == "send_telegram_message") {
+                        Log.e("ChatRepository", "send_telegram_message ОШИБКА: $errorMsg", it)
+                    }
+                    if (toolName == "send_telegram_message") {
+                        "Ошибка отправки в Telegram: $errorMsg. Сообщи пользователю, что не удалось отправить сообщение в Telegram."
+                    } else if (errorMsg.contains("Validation Failed") || errorMsg.contains("cannot be searched")) {
                         "Не удалось найти репозитории. Пожалуйста, укажите правильный GitHub username, например: 'Покажи репозитории пользователя octocat'"
                     } else {
                         "Ошибка выполнения инструмента $toolName: $errorMsg"
                     }
                 }
             )
+            if (toolName == "send_telegram_message") {
+                Log.d("ChatRepository", "send_telegram_message результат для модели: ${toolResultStr.take(80)}...")
+            }
+            toolResultStr
         } catch (e: Exception) {
             Log.e("ChatRepository", "Ошибка выполнения MCP инструмента $toolName", e)
             "Ошибка выполнения инструмента $toolName: ${e.message}"

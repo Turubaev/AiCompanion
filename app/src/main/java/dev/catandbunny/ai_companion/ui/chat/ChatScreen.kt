@@ -72,6 +72,7 @@ fun ChatScreen(
             getTemperature = { settingsViewModel.getTemperature() },
             getModel = { settingsViewModel.getSelectedModel() },
             getHistoryCompressionEnabled = { settingsViewModel.getHistoryCompressionEnabled() },
+            getTelegramChatId = { settingsViewModel.getTelegramChatId() },
             databaseRepository = databaseRepository
         )
     )

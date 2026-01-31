@@ -59,7 +59,7 @@ class CurrencyWorker(
                     return@withContext Result.success()
                 }
                 val result = callResult.getOrNull()!!
-                val rateText = result.content
+                val rateText = (result.content ?: emptyList())
                     .filter { it.type == "text" && it.text != null }
                     .joinToString("\n") { it.text!! }
                     .trim()

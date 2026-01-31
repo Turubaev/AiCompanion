@@ -79,7 +79,7 @@ data class CallToolResponse(
 
 data class CallToolResult(
     @SerializedName("content")
-    val content: List<ToolContent>,
+    val content: List<ToolContent>? = null,
     
     @SerializedName("isError")
     val isError: Boolean = false
@@ -107,10 +107,10 @@ data class ListToolsResponse(
     val jsonrpc: String = "2.0",
     
     @SerializedName("id")
-    val id: Int,
+    val id: Int? = null,
     
     @SerializedName("result")
-    val result: ListToolsResult
+    val result: ListToolsResult? = null
 )
 
 data class ListToolsResult(
