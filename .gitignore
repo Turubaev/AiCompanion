@@ -105,3 +105,8 @@ obj/
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Telegram bot (fetched from VPS; may contain .env)
+telegram-bot/.env
+telegram-bot/*.env
+telegram-bot/config.local.*

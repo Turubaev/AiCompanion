@@ -14,5 +14,7 @@ data class SettingsEntity(
     /** Включены ли пуш-уведомления о курсе USD/RUB */
     val currencyNotificationEnabled: Boolean = false,
     /** Интервал запроса курса в минутах (1, 5, 15, 30) */
-    val currencyIntervalMinutes: Int = 5
+    val currencyIntervalMinutes: Int = 5,
+    /** Telegram chat_id для отправки рекомендаций (например по портфелю) в Telegram */
+    val telegramChatId: String = ""
 )

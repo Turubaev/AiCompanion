@@ -7,8 +7,8 @@ object McpConfig {
     val MCP_SERVER_HOST: String = BuildConfig.MCP_SERVER_HOST
     val MCP_SERVER_PORT: Int = BuildConfig.MCP_SERVER_PORT
     
-    // Таймауты
+    // Таймауты (send_telegram_message вызывает Telegram API — может занимать до минуты)
     const val CONNECT_TIMEOUT_SECONDS = 10L
-    const val READ_TIMEOUT_SECONDS = 30L
+    const val READ_TIMEOUT_SECONDS = 90L
     const val WRITE_TIMEOUT_SECONDS = 30L
 }

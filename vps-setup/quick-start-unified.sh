@@ -646,7 +646,7 @@ User=$USER
 WorkingDirectory=$HOME/mcp-unified
 Environment="GITHUB_PERSONAL_ACCESS_TOKEN=$GITHUB_TOKEN"
 Environment="TINKOFF_INVEST_TOKEN=$TINKOFF_TOKEN"
-ExecStart=/usr/bin/socat TCP-LISTEN:8080,fork,reuseaddr EXEC:"node $HOME/mcp-unified/index.js"
+ExecStart=/usr/bin/socat TCP-LISTEN:8080,fork,reuseaddr EXEC:"stdbuf -oL node $HOME/mcp-unified/index.js"
 Restart=always
 RestartSec=10
 StandardOutput=journal

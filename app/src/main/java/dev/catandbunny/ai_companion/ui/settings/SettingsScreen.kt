@@ -45,6 +45,7 @@ fun SettingsScreen(
     val historyCompressionEnabled by viewModel.historyCompressionEnabled.collectAsState()
     val currencyNotificationEnabled by viewModel.currencyNotificationEnabled.collectAsState()
     val currencyIntervalMinutes by viewModel.currencyIntervalMinutes.collectAsState()
+    val telegramChatId by viewModel.telegramChatId.collectAsState()
     val availableModels = viewModel.availableModels
     val context = LocalContext.current
     val requestNotificationPermission = rememberLauncherForActivityResult(
@@ -464,6 +465,30 @@ fun SettingsScreen(
                     }
                 }
             }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Text(
+                text = "Telegram для рекомендаций",
+                style = MaterialTheme.typography.titleLarge
+            )
+
+            Text(
+                text = "Chat ID для отправки рекомендаций по портфелю/инвестициям в Telegram. Узнать свой chat_id можно у @userinfobot в Telegram.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            OutlinedTextField(
+                value = telegramChatId,
+                onValueChange = { viewModel.updateTelegramChatId(it) },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Telegram Chat ID") },
+                placeholder = { Text("Например: 123456789") },
+                singleLine = true
+            )
         }
     }
 

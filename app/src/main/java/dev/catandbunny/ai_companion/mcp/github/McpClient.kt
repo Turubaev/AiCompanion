@@ -55,13 +55,15 @@ class McpClient(
      */
     suspend fun initialize(): Result<InitializeResult> = withContext(Dispatchers.IO) {
         try {
+            val requestId = requestIdCounter.getAndIncrement()
             val request = InitializeRequest(
+                id = requestId,
                 params = InitializeParams(
                     clientInfo = ClientInfo()
                 )
             )
-            
-            val response = sendRequest(request, InitializeResponse::class.java)
+            Log.d(TAG, "initialize: requestId=$requestId")
+            val response = sendRequest(request, InitializeResponse::class.java, expectedId = requestId)
             
             if (response.isSuccess) {
                 isInitialized = true
@@ -80,13 +82,22 @@ class McpClient(
      */
     suspend fun listTools(): Result<List<McpTool>> = withContext(Dispatchers.IO) {
         try {
+            val requestId = requestIdCounter.getAndIncrement()
             val request = McpRequest(
-                id = requestIdCounter.getAndIncrement(),
+                id = requestId,
                 method = "tools/list"
             )
-            
-            val response = sendRequest(request, ListToolsResponse::class.java)
-            response.map { it.result.tools }
+            Log.d(TAG, "listTools: requestId=$requestId")
+            val response = sendRequest(request, ListToolsResponse::class.java, expectedId = requestId)
+            response.fold(
+                onSuccess = { resp ->
+                    val tools = resp.result?.tools
+                    Log.d(TAG, "listTools: получено инструментов=${tools?.size ?: 0}, имена=${tools?.map { it.name }}")
+                    tools?.let { Result.success(it) }
+                        ?: Result.failure(IOException("MCP tools/list: некорректный ответ (result=null)"))
+                },
+                onFailure = { Result.failure(it) }
+            )
         } catch (e: Exception) {
             Log.e(TAG, "Ошибка получения списка инструментов", e)
             Result.failure(e)
@@ -101,15 +112,16 @@ class McpClient(
         arguments: Map<String, Any>? = null
     ): Result<CallToolResult> = withContext(Dispatchers.IO) {
         try {
+            val requestId = requestIdCounter.getAndIncrement()
             val request = CallToolRequest(
-                id = requestIdCounter.getAndIncrement(),
+                id = requestId,
                 params = CallToolParams(
                     name = toolName,
                     arguments = arguments
                 )
             )
             
-            val response = sendRequest(request, CallToolResponse::class.java)
+            val response = sendRequest(request, CallToolResponse::class.java, expectedId = requestId)
             response.map { it.result }
         } catch (e: Exception) {
             Log.e(TAG, "Ошибка вызова инструмента $toolName", e)
@@ -118,9 +130,10 @@ class McpClient(
     }
 
     /**
-     * Отправка запроса и получение ответа
+     * Отправка запроса и получение ответа.
+     * @param expectedId если задан, читаем строки до ответа с этим id (игнорируем ответы с другим id)
      */
-    private suspend fun <T> sendRequest(request: Any, responseType: Class<T>): Result<T> = withContext(Dispatchers.IO) {
+    private suspend fun <T> sendRequest(request: Any, responseType: Class<T>, expectedId: Int? = null): Result<T> = withContext(Dispatchers.IO) {
         try {
             val requestJson = gson.toJson(request)
             Log.d(TAG, "Отправка запроса: $requestJson")
@@ -128,25 +141,41 @@ class McpClient(
             writer?.println(requestJson)
             writer?.flush()
             
-            // Читаем ответ
-            val responseLine = reader?.readLine()
-            if (responseLine == null) {
-                return@withContext Result.failure(IOException("Пустой ответ от сервера"))
-            }
+            var responseLine: String?
+            do {
+                responseLine = reader?.readLine()
+                if (responseLine == null) {
+                    return@withContext Result.failure(IOException("Пустой ответ от сервера"))
+                }
+                val trimmed = responseLine.trim()
+                if (trimmed.isEmpty() || !trimmed.startsWith("{")) {
+                    Log.d(TAG, "Пропуск: ${if (trimmed.length > 60) trimmed.take(60) + "..." else trimmed}")
+                    continue
+                }
+                if (!trimmed.contains("\"result\"") && !trimmed.contains("\"error\"") && !trimmed.contains("\"method\"")) {
+                    Log.d(TAG, "Пропуск: ${if (trimmed.length > 60) trimmed.take(60) + "..." else trimmed}")
+                    continue
+                }
+                if (expectedId != null) {
+                    val base = gson.fromJson(responseLine, McpResponse::class.java)
+                    val responseId = base.id
+                    if (responseId != expectedId) {
+                        Log.d(TAG, "Пропуск ответа id=$responseId (ожидаем id=$expectedId)")
+                        continue
+                    }
+                }
+                break
+            } while (true)
             
-            Log.d(TAG, "Получен ответ: $responseLine")
+            Log.d(TAG, "Получен ответ: ${if (responseLine.length > 250) responseLine.take(250) + "..." else responseLine}")
             
-            // Парсим базовый ответ для проверки ошибок
             val baseResponse = gson.fromJson(responseLine, McpResponse::class.java)
-            
-            // Проверяем на ошибки
             if (baseResponse.error != null) {
                 return@withContext Result.failure(
                     Exception("MCP ошибка: ${baseResponse.error.message} (код: ${baseResponse.error.code})")
                 )
             }
             
-            // Парсим в нужный тип
             val typedResponse = gson.fromJson(responseLine, responseType)
             Result.success(typedResponse)
         } catch (e: Exception) {
