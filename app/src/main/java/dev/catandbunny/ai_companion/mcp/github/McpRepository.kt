@@ -7,36 +7,62 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 /**
- * Репозиторий для работы с MCP GitHub сервисом
- * Управляет жизненным циклом подключения
+ * Репозиторий для работы с MCP: один сервер (VPS) или два (VPS + локальный для эмулятора).
  */
 class McpRepository {
-    
-    private var mcpClient: McpClient? = null
-    private var gitHubService: GitHubMcpService? = null
-    
+
+    private var mcpClientVps: McpClient? = null
+    private var mcpClientLocal: McpClient? = null
+    private var vpsService: GitHubMcpService? = null
+    private var localService: GitHubMcpService? = null
+    private var effectiveService: IMcpToolService? = null
+
     companion object {
         private const val TAG = "McpRepository"
     }
 
     /**
-     * Инициализация и подключение к MCP серверу.
-     * При первой неудаче (например, "пустой ответ") делается одна повторная попытка через 2 сек.
+     * Инициализация: VPS всегда; локальный MCP — если заданы MCP_SERVER_HOST_LOCAL и MCP_SERVER_PORT_LOCAL.
      */
     suspend fun initialize(): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            if (gitHubService?.isConnected() == true) {
-                Log.d(TAG, "Уже подключено к MCP серверу")
+            if (effectiveService?.isConnected() == true) {
+                Log.d(TAG, "Уже подключено к MCP")
                 return@withContext Result.success(Unit)
             }
 
             suspend fun tryConnect(): Result<Unit> {
-                mcpClient = McpClient(
+                mcpClientVps = McpClient(
                     host = McpConfig.MCP_SERVER_HOST,
                     port = McpConfig.MCP_SERVER_PORT
                 )
-                gitHubService = GitHubMcpService(mcpClient!!)
-                return gitHubService!!.initialize()
+                vpsService = GitHubMcpService(mcpClientVps!!)
+                val vpsResult = vpsService!!.initialize()
+                if (vpsResult.isFailure) return vpsResult
+
+                if (McpConfig.isLocalMcpConfigured()) {
+                    mcpClientLocal = McpClient(
+                        host = McpConfig.MCP_SERVER_HOST_LOCAL,
+                        port = McpConfig.MCP_SERVER_PORT_LOCAL
+                    )
+                    val local = GitHubMcpService(mcpClientLocal!!)
+                    val localInit = local.initialize()
+                    if (localInit.isSuccess && local.isConnected()) {
+                        localService = local
+                        effectiveService = GitHubMcpServiceDual(vpsService!!, localService)
+                        Log.d(TAG, "Dual MCP: VPS + local (control_android_emulator)")
+                    } else {
+                        local.disconnect()
+                        mcpClientLocal = null
+                        localService = null
+                        effectiveService = vpsService
+                        Log.w(TAG, "Local MCP недоступен, используем только VPS")
+                    }
+                } else {
+                    effectiveService = vpsService
+                    Log.d(TAG, "Single MCP: VPS only")
+                }
+                return Result.success(Unit)
             }
 
             var result = tryConnect()
@@ -46,9 +72,7 @@ class McpRepository {
                 delay(2000)
                 result = tryConnect()
             }
-            if (result.isFailure) {
-                cleanup()
-            }
+            if (result.isFailure) cleanup()
             result
         } catch (e: Exception) {
             Log.e(TAG, "Ошибка инициализации репозитория", e)
@@ -61,75 +85,51 @@ class McpRepository {
      * Получить список репозиториев
      */
     suspend fun getRepositories(owner: String? = null, limit: Int = 10): Result<String> {
-        return gitHubService?.listRepositories(owner, limit)
+        return vpsService?.listRepositories(owner, limit)
             ?: Result.failure(IllegalStateException("MCP сервис не инициализирован"))
     }
 
-    /**
-     * Получить информацию о репозитории
-     */
     suspend fun getRepositoryInfo(owner: String, repo: String): Result<String> {
-        return gitHubService?.getRepositoryInfo(owner, repo)
+        return vpsService?.getRepositoryInfo(owner, repo)
             ?: Result.failure(IllegalStateException("MCP сервис не инициализирован"))
     }
 
-    /**
-     * Получить содержимое файла
-     */
     suspend fun getFileContent(owner: String, repo: String, path: String): Result<String> {
-        return gitHubService?.getFileContent(owner, repo, path)
+        return vpsService?.getFileContent(owner, repo, path)
             ?: Result.failure(IllegalStateException("MCP сервис не инициализирован"))
     }
 
-    /**
-     * Поиск в репозитории
-     */
     suspend fun searchInRepository(owner: String, repo: String, query: String): Result<String> {
-        return gitHubService?.searchInRepository(owner, repo, query)
+        return vpsService?.searchInRepository(owner, repo, query)
             ?: Result.failure(IllegalStateException("MCP сервис не инициализирован"))
     }
 
-    /**
-     * Получить список issues
-     */
     suspend fun getIssues(owner: String, repo: String, state: String = "open", limit: Int = 10): Result<String> {
-        return gitHubService?.listIssues(owner, repo, state, limit)
+        return vpsService?.listIssues(owner, repo, state, limit)
             ?: Result.failure(IllegalStateException("MCP сервис не инициализирован"))
     }
 
-    /**
-     * Получить список доступных инструментов
-     */
     suspend fun getAvailableTools(): Result<List<dev.catandbunny.ai_companion.mcp.model.McpTool>> {
-        return gitHubService?.getAvailableTools()
+        return effectiveService?.getAvailableTools()
             ?: Result.failure(IllegalStateException("MCP сервис не инициализирован"))
     }
-    
-    /**
-     * Получить доступ к GitHub сервису (для прямого вызова инструментов)
-     */
-    fun getGitHubService(): GitHubMcpService? = gitHubService
 
-    /**
-     * Проверка подключения
-     */
-    fun isConnected(): Boolean {
-        return gitHubService?.isConnected() == true
-    }
+    /** Для вызова инструментов из чата (VPS и/или локальный по имени инструмента). */
+    fun getGitHubService(): IMcpToolService? = effectiveService
 
-    /**
-     * Закрытие подключения
-     */
+    fun isConnected(): Boolean = effectiveService?.isConnected() == true
+
     fun disconnect() {
-        gitHubService?.disconnect()
+        (effectiveService as? GitHubMcpServiceDual)?.disconnect()
+            ?: vpsService?.disconnect()
         cleanup()
     }
 
-    /**
-     * Очистка ресурсов
-     */
     private fun cleanup() {
-        gitHubService = null
-        mcpClient = null
+        effectiveService = null
+        localService = null
+        vpsService = null
+        mcpClientLocal = null
+        mcpClientVps = null
     }
 }

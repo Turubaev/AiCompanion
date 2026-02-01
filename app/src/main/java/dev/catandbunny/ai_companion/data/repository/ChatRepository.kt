@@ -108,6 +108,15 @@ class ChatRepository(
                         """.trimIndent()
                     ))
                 }
+                // Подсказка для control_android_emulator: при запросе демо на эмуляторе — action=simulate_user_flow
+                if (mcpTools?.any { it.function.name == "control_android_emulator" } == true) {
+                    add(Message(
+                        role = "system",
+                        content = """
+                        Для демо на эмуляторе (открыть приложение, отправить сообщение про инвестиции, записать экран) вызывай control_android_emulator с action="simulate_user_flow". Другие action: start_emulator, record_screen, stop_recording, get_recording_path. Не используй test_message или recording_start как action — это параметры, не действия.
+                        """.trimIndent()
+                    ))
+                }
                 
                 addAll(regularMessages.map { chatMessage ->
                     Message(

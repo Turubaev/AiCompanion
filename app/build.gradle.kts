@@ -14,7 +14,9 @@ android {
     var openAiApiKey = ""
     var mcpServerHost = "45.14.165.53"
     var mcpServerPort = 8080
-    
+    var mcpServerHostLocal = ""
+    var mcpServerPortLocal = 0
+
     if (localPropertiesFile.exists()) {
         localPropertiesFile.readLines().forEach { line ->
             when {
@@ -26,6 +28,12 @@ android {
                 }
                 line.startsWith("MCP_SERVER_PORT=") -> {
                     mcpServerPort = line.substringAfter("=").trim().toIntOrNull() ?: 8080
+                }
+                line.startsWith("MCP_SERVER_HOST_LOCAL=") -> {
+                    mcpServerHostLocal = line.substringAfter("=").trim()
+                }
+                line.startsWith("MCP_SERVER_PORT_LOCAL=") -> {
+                    mcpServerPortLocal = line.substringAfter("=").trim().toIntOrNull() ?: 0
                 }
             }
         }
@@ -44,6 +52,8 @@ android {
         buildConfigField("String", "OPENAI_API_KEY", if (openAiApiKey.isNotEmpty()) "\"$openAiApiKey\"" else "\"\"")
         buildConfigField("String", "MCP_SERVER_HOST", "\"$mcpServerHost\"")
         buildConfigField("int", "MCP_SERVER_PORT", "$mcpServerPort")
+        buildConfigField("String", "MCP_SERVER_HOST_LOCAL", "\"$mcpServerHostLocal\"")
+        buildConfigField("int", "MCP_SERVER_PORT_LOCAL", "$mcpServerPortLocal")
     }
 
     buildTypes {
