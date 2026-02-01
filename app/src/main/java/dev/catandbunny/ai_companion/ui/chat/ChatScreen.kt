@@ -39,6 +39,7 @@ import dev.catandbunny.ai_companion.ui.mcp.McpToolsScreen
 import dev.catandbunny.ai_companion.ui.settings.SettingsScreen
 import dev.catandbunny.ai_companion.ui.settings.SettingsViewModel
 import dev.catandbunny.ai_companion.worker.PendingCurrencyNotification
+import dev.catandbunny.ai_companion.worker.PendingSharedText
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
@@ -93,6 +94,17 @@ fun ChatScreen(
             pendingMessage?.let { text ->
                 viewModel.addBotMessage(text)
                 PendingCurrencyNotification.setPendingMessage(null)
+            }
+        }
+    }
+
+    // Текст из демо (adb am start с EXTRA_DEMO_MESSAGE) — отправляем как сообщение пользователя
+    LaunchedEffect(Unit) {
+        PendingSharedText.textToSendFlow.collectLatest { textToSend ->
+            textToSend?.let { text ->
+                android.util.Log.d("ChatScreen", "DEMO: sending message, length=${text.length}")
+                viewModel.sendMessage(text)
+                PendingSharedText.setTextToSend(null)
             }
         }
     }

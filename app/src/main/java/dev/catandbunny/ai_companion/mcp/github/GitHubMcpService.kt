@@ -9,7 +9,7 @@ import kotlinx.coroutines.withContext
 /**
  * Сервис для работы с GitHub через MCP
  */
-class GitHubMcpService(private val mcpClient: McpClient) {
+class GitHubMcpService(private val mcpClient: McpClient) : IMcpToolService {
     
     companion object {
         private const val TAG = "GitHubMcpService"
@@ -44,7 +44,7 @@ class GitHubMcpService(private val mcpClient: McpClient) {
     /**
      * Получить список доступных инструментов GitHub
      */
-    suspend fun getAvailableTools(): Result<List<McpTool>> = withContext(Dispatchers.IO) {
+    override suspend fun getAvailableTools(): Result<List<McpTool>> = withContext(Dispatchers.IO) {
         mcpClient.listTools()
     }
 
@@ -165,9 +165,9 @@ class GitHubMcpService(private val mcpClient: McpClient) {
     /**
      * Вызвать инструмент напрямую по имени
      */
-    suspend fun callTool(
+    override suspend fun callTool(
         toolName: String,
-        arguments: Map<String, Any>? = null
+        arguments: Map<String, Any>?
     ): Result<CallToolResult> = withContext(Dispatchers.IO) {
         mcpClient.callTool(toolName, arguments)
     }
@@ -191,7 +191,7 @@ class GitHubMcpService(private val mcpClient: McpClient) {
     /**
      * Проверка подключения
      */
-    fun isConnected(): Boolean {
+    override fun isConnected(): Boolean {
         return mcpClient.isConnected()
     }
 }

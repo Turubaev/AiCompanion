@@ -14,7 +14,10 @@ import dev.catandbunny.ai_companion.ui.chat.ChatScreen
 import dev.catandbunny.ai_companion.ui.theme.Ai_CompanionTheme
 import dev.catandbunny.ai_companion.worker.CurrencyScheduler
 import dev.catandbunny.ai_companion.worker.EXTRA_CURRENCY_NOTIFICATION_MESSAGE
+import android.util.Base64
+import dev.catandbunny.ai_companion.worker.EXTRA_DEMO_MESSAGE_B64
 import dev.catandbunny.ai_companion.worker.PendingCurrencyNotification
+import dev.catandbunny.ai_companion.worker.PendingSharedText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -45,7 +48,26 @@ class MainActivity : ComponentActivity() {
         val message = intent?.getStringExtra(EXTRA_CURRENCY_NOTIFICATION_MESSAGE)
         if (!message.isNullOrBlank()) {
             PendingCurrencyNotification.setPendingMessage(message)
-            intent.removeExtra(EXTRA_CURRENCY_NOTIFICATION_MESSAGE)
+            intent?.removeExtra(EXTRA_CURRENCY_NOTIFICATION_MESSAGE)
+            return
+        }
+        val sharedText = intent?.getStringExtra(Intent.EXTRA_TEXT)
+        if (!sharedText.isNullOrBlank()) {
+            PendingSharedText.setTextToSend(sharedText)
+            intent.removeExtra(Intent.EXTRA_TEXT)
+            return
+        }
+        val demoB64 = intent?.getStringExtra(EXTRA_DEMO_MESSAGE_B64)
+        if (!demoB64.isNullOrBlank()) {
+            try {
+                val bytes = Base64.decode(demoB64, Base64.DEFAULT)
+                val demoText = String(bytes, Charsets.UTF_8)
+                if (demoText.isNotBlank()) {
+                    android.util.Log.d("MainActivity", "DEMO: received message (base64), length=${demoText.length}")
+                    PendingSharedText.setTextToSend(demoText)
+                }
+            } catch (_: Exception) { }
+            intent.removeExtra(EXTRA_DEMO_MESSAGE_B64)
         }
     }
 

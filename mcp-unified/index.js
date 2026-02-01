@@ -16,6 +16,10 @@ import https from "https";
 import { execFile } from "child_process";
 import { fileURLToPath } from "url";
 import path from "path";
+import {
+  CONTROL_ANDROID_EMULATOR_TOOL,
+  handleControlAndroidEmulator,
+} from "./emulator/android-emulator-service.js";
 
 const server = new Server(
   {
@@ -384,6 +388,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         required: ["text"],
       },
     },
+    CONTROL_ANDROID_EMULATOR_TOOL,
   ];
 
   return { tools };
@@ -491,6 +496,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     return handleTool(name, async () => {
       await sendTelegramMessage(chatId, text);
       return { content: [{ type: "text", text: "Сообщение успешно отправлено в Telegram." }] };
+    });
+  }
+
+  if (name === "control_android_emulator") {
+    return handleTool(name, async () => {
+      const { content } = await handleControlAndroidEmulator(args || {});
+      return { content };
     });
   }
 

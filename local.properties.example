@@ -10,7 +10,12 @@ sdk.dir=YOUR_SDK_PATH_HERE
 OPENAI_API_KEY=your-api-key-here
 
 # MCP Server Configuration
-# VPS IP address where MCP server is running
+# VPS: Tinkoff, Telegram, GitHub (обязательно)
 MCP_SERVER_HOST=45.14.165.53
-# MCP Server TCP port
 MCP_SERVER_PORT=8080
+
+# Локальный MCP (эмулятор): если заданы — приложение подключается к обоим серверам,
+# control_android_emulator вызывается на локальный, остальные инструменты — на VPS.
+# Для эмулятора укажите 10.0.2.2 (адрес ПК с точки зрения эмулятора).
+# MCP_SERVER_HOST_LOCAL=10.0.2.2
+# MCP_SERVER_PORT_LOCAL=8080

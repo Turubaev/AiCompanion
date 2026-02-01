@@ -16,6 +16,9 @@ import kotlinx.coroutines.flow.asStateFlow
 /** Ключ для передачи текста уведомления при клике (открытие чата с сообщением от бота). */
 const val EXTRA_CURRENCY_NOTIFICATION_MESSAGE = "dev.catandbunny.ai_companion.EXTRA_CURRENCY_MESSAGE"
 
+/** Ключ для передачи сообщения из adb am start (демо на эмуляторе), Base64. */
+const val EXTRA_DEMO_MESSAGE_B64 = "dev.catandbunny.ai_companion.DEMO_MESSAGE_B64"
+
 /**
  * Сообщение из пуш-уведомления о курсе, которое нужно показать в чате как сообщение бота.
  * MainActivity при получении intent с extra устанавливает этот flow; ChatScreen добавляет сообщение в чат.
@@ -26,6 +29,19 @@ object PendingCurrencyNotification {
 
     fun setPendingMessage(text: String?) {
         _messageFlow.value = text
+    }
+}
+
+/**
+ * Текст, переданный через ACTION_SEND (например, из adb am start для демо на эмуляторе).
+ * MainActivity при получении intent с EXTRA_TEXT устанавливает этот flow; ChatScreen отправляет его как сообщение пользователя.
+ */
+object PendingSharedText {
+    private val _textToSendFlow = MutableStateFlow<String?>(null)
+    val textToSendFlow: StateFlow<String?> = _textToSendFlow.asStateFlow()
+
+    fun setTextToSend(text: String?) {
+        _textToSendFlow.value = text
     }
 }
 
