@@ -1,36 +1,33 @@
 # -*- coding: utf-8 -*-
 """
-Поиск по индексу по текстовому запросу.
+Поиск по индексу по текстовому запросу (гибридный: слова запроса + FAISS, как в RAG-сервере).
 
 Использование:
   python search.py "инвестиции и дивиденды"
-  python search.py "Kotlin Compose архитектура"
+  python search.py "кто такой Глазунов Анатолий" 10
 """
-from pathlib import Path
 import sys
-
-OUT_DIR = Path(__file__).resolve().parent / "output"
-JSON_INDEX = OUT_DIR / "index.json"
-FAISS_INDEX = OUT_DIR / "index.faiss"
 
 
 def main() -> None:
-    from embedder import get_embedder
-    from index_store import load_json_index, search_faiss
+    from pathlib import Path
+    from rag_server import search
 
     if len(sys.argv) < 2:
-        print("Usage: python search.py <query>")
+        print("Usage: python search.py <query> [top_k]")
         sys.exit(1)
-    query = " ".join(sys.argv[1:])
+    args = sys.argv[1:]
+    top_k = 10
+    if len(args) >= 2 and args[-1].isdigit():
+        top_k = int(args.pop())
+    query = " ".join(args)
 
-    if not JSON_INDEX.exists() or not FAISS_INDEX.exists():
+    out_dir = Path(__file__).resolve().parent / "output"
+    if not (out_dir / "index.json").exists() or not (out_dir / "index.faiss").exists():
         print("Index not found. Run build_index.py first.")
         sys.exit(1)
 
-    model = get_embedder()
-    query_emb = model.encode([query], normalize_embeddings=True)
-
-    results = search_faiss(query_emb, FAISS_INDEX, JSON_INDEX, top_k=5)
+    results = search(query, top_k=top_k)
     print(f"Query: {query}\n")
     for i, r in enumerate(results, 1):
         print(f"--- {i} (score: {r['score']:.4f}) [{r['doc_id']}] {r.get('section', '')} ---")

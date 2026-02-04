@@ -4,6 +4,7 @@ import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 import com.google.gson.JsonSyntaxException
+import dev.catandbunny.ai_companion.BuildConfig
 import dev.catandbunny.ai_companion.data.api.RetrofitClient
 import dev.catandbunny.ai_companion.data.model.Message
 import dev.catandbunny.ai_companion.data.model.OpenAIRequest
@@ -18,13 +19,27 @@ import dev.catandbunny.ai_companion.data.model.ToolCall
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import java.util.concurrent.TimeUnit
 
 class ChatRepository(
     private val apiKey: String,
-    private val getTelegramChatId: () -> String = { "" }
+    private val getTelegramChatId: () -> String = { "" },
+    private val getRagEnabled: () -> Boolean = { false }
 ) {
     private val openAIService = RetrofitClient.openAIService
     private val mcpRepository = McpRepository()
+
+    // Первый запрос к RAG может быть долгим: загрузка модели и индекса на сервере (15–60 с)
+    private val ragClient = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
+        .build()
+
+    private val gson = Gson()
 
     suspend fun sendMessage(
         userMessage: String,
@@ -69,8 +84,27 @@ class ChatRepository(
                     Log.w("ChatRepository", "MCP сервер не подключен, инструменты недоступны")
                 }
             }
+
+            // RAG: поиск релевантных чанков; контекст добавляем отдельным сообщением прямо перед вопросом
+            var ragContextMessage: String? = null
+            if (getRagEnabled()) {
+                val ragChunks = withContext<List<RagChunk>>(Dispatchers.IO) {
+                    fetchRagChunks(userMessage)
+                }
+                if (ragChunks.isNotEmpty()) {
+                    val contextBlock = ragChunks.joinToString("\n\n---\n\n") { it.text }
+                    ragContextMessage = """
+                        ВНИМАНИЕ: Ниже — приоритетный источник для ответа на следующий вопрос пользователя (фрагменты из базы знаний). Отвечай в первую очередь на основе этих фрагментов: если в них есть ответ на вопрос — формулируй его на их основе, не подменяй общими знаниями из обучения.
+
+                        $contextBlock
+                    """.trimIndent()
+                    Log.d("ChatRepository", "RAG: добавлено ${ragChunks.size} чанков в контекст")
+                } else {
+                    Log.d("ChatRepository", "RAG: чанки не получены (сервис недоступен или пустой ответ)")
+                }
+            }
             
-            // Системный промпт
+            // Системный промпт (без RAG — RAG идёт отдельным сообщением перед вопросом)
             val systemPrompt = Message(
                 role = "system",
                 content = systemPromptText
@@ -124,7 +158,10 @@ class ChatRepository(
                         content = chatMessage.text
                     )
                 })
-                
+                // RAG: контекст из базы знаний сразу перед вопросом — модель сильнее опирается на него
+                if (ragContextMessage != null) {
+                    add(Message(role = "system", content = ragContextMessage))
+                }
                 add(Message(role = "user", content = userMessage))
             }
             
@@ -612,5 +649,37 @@ class ChatRepository(
             else -> "unknown" // Неизвестный
         }
     }
-    
+
+    /**
+     * Запрос к RAG-сервису: поиск релевантных чанков по вопросу пользователя.
+     * Возвращает пустой список при ошибке или недоступности сервиса.
+     */
+    private fun fetchRagChunks(query: String): List<RagChunk> {
+        if (query.isBlank()) return emptyList()
+        val baseUrl = BuildConfig.RAG_SERVICE_URL.trimEnd('/')
+        val url = "$baseUrl/search"
+        // Больше чанков — выше шанс захватить нужный фрагмент (в диссертациях/PDF много имён, семантика размазана)
+        val body = """{"query":${gson.toJson(query)},"top_k":10}"""
+        val request = Request.Builder()
+            .url(url)
+            .post(body.toRequestBody("application/json; charset=utf-8".toMediaType()))
+            .build()
+        return try {
+            ragClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.w("ChatRepository", "RAG service error: ${response.code} ${response.message}")
+                    return@use emptyList<RagChunk>()
+                }
+                val json = response.body?.string() ?: return@use emptyList<RagChunk>()
+                val parsed = gson.fromJson(json, RagSearchResponse::class.java)
+                parsed.chunks ?: emptyList()
+            }
+        } catch (e: Exception) {
+            Log.w("ChatRepository", "RAG fetch failed: ${e.message}")
+            emptyList()
+        }
+    }
+
+    private data class RagChunk(val text: String, val score: Double = 0.0)
+    private data class RagSearchResponse(val chunks: List<RagChunk>?)
 }

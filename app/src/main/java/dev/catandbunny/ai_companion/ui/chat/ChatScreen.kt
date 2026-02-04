@@ -74,6 +74,7 @@ fun ChatScreen(
             getModel = { settingsViewModel.getSelectedModel() },
             getHistoryCompressionEnabled = { settingsViewModel.getHistoryCompressionEnabled() },
             getTelegramChatId = { settingsViewModel.getTelegramChatId() },
+            getRagEnabled = { settingsViewModel.getRagEnabled() },
             databaseRepository = databaseRepository
         )
     )

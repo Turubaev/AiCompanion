@@ -134,7 +134,14 @@ def chunk_text(
         )
 
 
-def chunk_document(path: Path, doc_id: str) -> Iterator[Chunk]:
+def chunk_document(
+    path: Path,
+    doc_id: str,
+    *,
+    max_chars: int = 600,
+    overlap_chars: int = 80,
+    min_chunk_chars: int = 100,
+) -> Iterator[Chunk]:
     """
     Читает текстовый документ (например .md) и выдаёт чанки с метаданными.
     doc_id — короткий идентификатор (например, имя файла без расширения).
@@ -145,4 +152,9 @@ def chunk_document(path: Path, doc_id: str) -> Iterator[Chunk]:
     first_line = text.split("\n")[0].strip()
     if first_line.startswith("#"):
         section = first_line.lstrip("#").strip()
-    yield from chunk_text(text, doc_id, str(path), section=section)
+    yield from chunk_text(
+        text, doc_id, str(path), section=section,
+        max_chars=max_chars,
+        overlap_chars=overlap_chars,
+        min_chunk_chars=min_chunk_chars,
+    )

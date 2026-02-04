@@ -46,6 +46,7 @@ fun SettingsScreen(
     val currencyNotificationEnabled by viewModel.currencyNotificationEnabled.collectAsState()
     val currencyIntervalMinutes by viewModel.currencyIntervalMinutes.collectAsState()
     val telegramChatId by viewModel.telegramChatId.collectAsState()
+    val ragEnabled by viewModel.ragEnabled.collectAsState()
     val availableModels = viewModel.availableModels
     val context = LocalContext.current
     val requestNotificationPermission = rememberLauncherForActivityResult(
@@ -489,6 +490,55 @@ fun SettingsScreen(
                 placeholder = { Text("Например: 123456789") },
                 singleLine = true
             )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Text(
+                text = "Режим RAG (поиск по базе знаний)",
+                style = MaterialTheme.typography.titleLarge
+            )
+
+            Text(
+                text = "При включении перед каждым запросом к боту выполняется поиск релевантных фрагментов по локальному индексу документов (профиль, тестовые материалы). Эти фрагменты подставляются в контекст запроса к LLM.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Включить RAG",
+                            style = MaterialTheme.typography.labelLarge
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = if (ragEnabled) {
+                                "Ответы с учётом базы знаний"
+                            } else {
+                                "Выключено"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = ragEnabled,
+                        onCheckedChange = { viewModel.updateRagEnabled(it) }
+                    )
+                }
+            }
         }
     }
 

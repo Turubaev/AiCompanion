@@ -46,16 +46,31 @@ def main() -> None:
         print("No input documents found. Expected:", [str(p) for p in DEFAULT_DOCS], file=sys.stderr)
         sys.exit(1)
 
+    # Меньшие чанки (380 символов) — лучше вытаскивать отдельные персоны/факты из диссертаций и PDF
+    CHUNK_MAX_CHARS = 380
+    CHUNK_OVERLAP = 60
+    CHUNK_MIN_CHARS = 60
+
     chunks: list[Chunk] = []
     for path in doc_paths:
         doc_id = path.stem
         if path.suffix.lower() == ".pdf":
             from pdf_loader import extract_text
             text = extract_text(path)
-            for c in chunk_text(text, doc_id, str(path), section=""):
+            for c in chunk_text(
+                text, doc_id, str(path), section="",
+                max_chars=CHUNK_MAX_CHARS,
+                overlap_chars=CHUNK_OVERLAP,
+                min_chunk_chars=CHUNK_MIN_CHARS,
+            ):
                 chunks.append(c)
         else:
-            for c in chunk_document(path, doc_id):
+            for c in chunk_document(
+                path, doc_id,
+                max_chars=CHUNK_MAX_CHARS,
+                overlap_chars=CHUNK_OVERLAP,
+                min_chunk_chars=CHUNK_MIN_CHARS,
+            ):
                 chunks.append(c)
 
     texts = [c.text for c in chunks]

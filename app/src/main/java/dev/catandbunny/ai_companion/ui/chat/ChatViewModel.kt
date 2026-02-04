@@ -25,9 +25,10 @@ class ChatViewModel(
     private val getModel: () -> String,
     private val getHistoryCompressionEnabled: () -> Boolean,
     private val getTelegramChatId: () -> String = { "" },
+    private val getRagEnabled: () -> Boolean = { false },
     private val databaseRepository: DatabaseRepository? = null
 ) : ViewModel() {
-    private val repository = ChatRepository(apiKey, getTelegramChatId)
+    private val repository = ChatRepository(apiKey, getTelegramChatId, getRagEnabled)
     private val historyCompressor = HistoryCompressor(apiKey)
     
     companion object {
