@@ -16,6 +16,8 @@ android {
     var mcpServerPort = 8080
     var mcpServerHostLocal = ""
     var mcpServerPortLocal = 0
+    // 10.0.2.2 = хост только в эмуляторе; для реального устройства в local.properties укажи IP ПК, напр. http://192.168.0.16:5001
+    var ragServiceUrl = "http://10.0.2.2:5001"
 
     if (localPropertiesFile.exists()) {
         localPropertiesFile.readLines().forEach { line ->
@@ -34,6 +36,9 @@ android {
                 }
                 line.startsWith("MCP_SERVER_PORT_LOCAL=") -> {
                     mcpServerPortLocal = line.substringAfter("=").trim().toIntOrNull() ?: 0
+                }
+                line.startsWith("RAG_SERVICE_URL=") -> {
+                    ragServiceUrl = line.substringAfter("=").trim().ifEmpty { ragServiceUrl }
                 }
             }
         }
@@ -54,6 +59,7 @@ android {
         buildConfigField("int", "MCP_SERVER_PORT", "$mcpServerPort")
         buildConfigField("String", "MCP_SERVER_HOST_LOCAL", "\"$mcpServerHostLocal\"")
         buildConfigField("int", "MCP_SERVER_PORT_LOCAL", "$mcpServerPortLocal")
+        buildConfigField("String", "RAG_SERVICE_URL", "\"$ragServiceUrl\"")
     }
 
     buildTypes {

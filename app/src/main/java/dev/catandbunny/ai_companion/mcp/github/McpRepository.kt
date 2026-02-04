@@ -7,14 +7,12 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 /**
- * Репозиторий для работы с MCP: один сервер (VPS) или два (VPS + локальный для эмулятора).
+ * Репозиторий для работы с MCP: подключение только к VPS (локальный MCP эмулятора отключён).
  */
 class McpRepository {
 
     private var mcpClientVps: McpClient? = null
-    private var mcpClientLocal: McpClient? = null
     private var vpsService: GitHubMcpService? = null
-    private var localService: GitHubMcpService? = null
     private var effectiveService: IMcpToolService? = null
 
     companion object {
@@ -22,7 +20,7 @@ class McpRepository {
     }
 
     /**
-     * Инициализация: VPS всегда; локальный MCP — если заданы MCP_SERVER_HOST_LOCAL и MCP_SERVER_PORT_LOCAL.
+     * Инициализация: только VPS (45.14.165.53:8080 и т.д.).
      */
     suspend fun initialize(): Result<Unit> = withContext(Dispatchers.IO) {
         try {
@@ -39,29 +37,8 @@ class McpRepository {
                 vpsService = GitHubMcpService(mcpClientVps!!)
                 val vpsResult = vpsService!!.initialize()
                 if (vpsResult.isFailure) return vpsResult
-
-                if (McpConfig.isLocalMcpConfigured()) {
-                    mcpClientLocal = McpClient(
-                        host = McpConfig.MCP_SERVER_HOST_LOCAL,
-                        port = McpConfig.MCP_SERVER_PORT_LOCAL
-                    )
-                    val local = GitHubMcpService(mcpClientLocal!!)
-                    val localInit = local.initialize()
-                    if (localInit.isSuccess && local.isConnected()) {
-                        localService = local
-                        effectiveService = GitHubMcpServiceDual(vpsService!!, localService)
-                        Log.d(TAG, "Dual MCP: VPS + local (control_android_emulator)")
-                    } else {
-                        local.disconnect()
-                        mcpClientLocal = null
-                        localService = null
-                        effectiveService = vpsService
-                        Log.w(TAG, "Local MCP недоступен, используем только VPS")
-                    }
-                } else {
-                    effectiveService = vpsService
-                    Log.d(TAG, "Single MCP: VPS only")
-                }
+                effectiveService = vpsService
+                Log.d(TAG, "MCP: VPS only")
                 return Result.success(Unit)
             }
 
@@ -120,16 +97,13 @@ class McpRepository {
     fun isConnected(): Boolean = effectiveService?.isConnected() == true
 
     fun disconnect() {
-        (effectiveService as? GitHubMcpServiceDual)?.disconnect()
-            ?: vpsService?.disconnect()
+        vpsService?.disconnect()
         cleanup()
     }
 
     private fun cleanup() {
         effectiveService = null
-        localService = null
         vpsService = null
-        mcpClientLocal = null
         mcpClientVps = null
     }
 }

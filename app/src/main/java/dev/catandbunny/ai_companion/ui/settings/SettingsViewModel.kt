@@ -9,12 +9,13 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
-private data class FiveSettings(
+private data class SixSettings(
     val prompt: String,
     val temperature: Double,
     val model: String,
     val compression: Boolean,
-    val currencyEnabled: Boolean
+    val currencyEnabled: Boolean,
+    val ragEnabled: Boolean
 )
 
 class SettingsViewModel(
@@ -57,6 +58,10 @@ class SettingsViewModel(
     private val _telegramChatId = MutableStateFlow("")
     val telegramChatId: StateFlow<String> = _telegramChatId.asStateFlow()
 
+    // Режим RAG: поиск релевантных чанков по индексу перед запросом к LLM
+    private val _ragEnabled = MutableStateFlow(false)
+    val ragEnabled: StateFlow<Boolean> = _ragEnabled.asStateFlow()
+
     init {
         loadSettingsFromDatabase()
         viewModelScope.launch {
@@ -67,19 +72,22 @@ class SettingsViewModel(
                 _historyCompressionEnabled,
                 _currencyNotificationEnabled
             ) { prompt, temp, model, compression, currencyEnabled ->
-                FiveSettings(prompt, temp, model, compression, currencyEnabled)
-            }.combine(_currencyIntervalMinutes) { five, currencyInterval ->
-                Pair(five, currencyInterval)
+                SixSettings(prompt, temp, model, compression, currencyEnabled, false)
+            }.combine(_ragEnabled) { six, ragEnabled ->
+                six.copy(ragEnabled = ragEnabled)
+            }.combine(_currencyIntervalMinutes) { six, currencyInterval ->
+                Pair(six, currencyInterval)
             }.combine(_telegramChatId) { pair, chatId ->
-                val (five, interval) = pair
+                val (six, interval) = pair
                 databaseRepository?.saveSettings(
-                    five.prompt,
-                    five.temperature,
-                    five.model,
-                    five.compression,
-                    currencyNotificationEnabled = five.currencyEnabled,
+                    six.prompt,
+                    six.temperature,
+                    six.model,
+                    six.compression,
+                    currencyNotificationEnabled = six.currencyEnabled,
                     currencyIntervalMinutes = interval,
-                    telegramChatId = chatId
+                    telegramChatId = chatId,
+                    ragEnabled = six.ragEnabled
                 )
             }.collect {}
         }
@@ -97,6 +105,7 @@ class SettingsViewModel(
                     _currencyNotificationEnabled.value = it.currencyNotificationEnabled
                     _currencyIntervalMinutes.value = it.currencyIntervalMinutes.coerceIn(1, 30)
                     _telegramChatId.value = it.telegramChatId
+                    _ragEnabled.value = it.ragEnabled
                 }
             } catch (e: Exception) {
                 // Игнорируем ошибки загрузки
@@ -149,4 +158,10 @@ class SettingsViewModel(
     }
 
     fun getTelegramChatId(): String = _telegramChatId.value
+
+    fun updateRagEnabled(enabled: Boolean) {
+        _ragEnabled.value = enabled
+    }
+
+    fun getRagEnabled(): Boolean = _ragEnabled.value
 }

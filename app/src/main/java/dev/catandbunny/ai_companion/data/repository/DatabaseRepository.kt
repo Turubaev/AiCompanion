@@ -49,7 +49,8 @@ class DatabaseRepository(private val database: AppDatabase) {
         historyCompressionEnabled: Boolean,
         currencyNotificationEnabled: Boolean = false,
         currencyIntervalMinutes: Int = 5,
-        telegramChatId: String = ""
+        telegramChatId: String = "",
+        ragEnabled: Boolean = false
     ) {
         try {
             val settings = SettingsEntity(
@@ -60,7 +61,8 @@ class DatabaseRepository(private val database: AppDatabase) {
                 historyCompressionEnabled = historyCompressionEnabled,
                 currencyNotificationEnabled = currencyNotificationEnabled,
                 currencyIntervalMinutes = currencyIntervalMinutes,
-                telegramChatId = telegramChatId
+                telegramChatId = telegramChatId,
+                ragEnabled = ragEnabled
             )
             database.settingsDao().insertSettings(settings)
         } catch (e: Exception) {

@@ -16,5 +16,7 @@ data class SettingsEntity(
     /** Интервал запроса курса в минутах (1, 5, 15, 30) */
     val currencyIntervalMinutes: Int = 5,
     /** Telegram chat_id для отправки рекомендаций (например по портфелю) в Telegram */
-    val telegramChatId: String = ""
+    val telegramChatId: String = "",
+    /** Режим RAG: вопрос → поиск релевантных чанков по индексу → объединение с вопросом → запрос к LLM */
+    val ragEnabled: Boolean = false
 )
