@@ -113,3 +113,8 @@ obj/
 telegram-bot/.env
 telegram-bot/*.env
 telegram-bot/config.local.*
+
+# Embedding index (generated; heavy JSON/FAISS)
+embedding-index/output/
+telegram-bot/*.env
+telegram-bot/config.local.*
