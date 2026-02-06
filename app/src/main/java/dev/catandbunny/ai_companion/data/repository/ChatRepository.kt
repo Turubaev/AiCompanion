@@ -28,15 +28,18 @@ import java.util.concurrent.TimeUnit
 class ChatRepository(
     private val apiKey: String,
     private val getTelegramChatId: () -> String = { "" },
-    private val getRagEnabled: () -> Boolean = { false }
+    private val getRagEnabled: () -> Boolean = { false },
+    private val getRagMinScore: () -> Double = { 0.0 },
+    private val getRagUseReranker: () -> Boolean = { false }
 ) {
     private val openAIService = RetrofitClient.openAIService
     private val mcpRepository = McpRepository()
 
     // Первый запрос к RAG может быть долгим: загрузка модели и индекса на сервере (15–60 с)
+    // RAG-сервер с reranker может отвечать 60+ с (загрузка моделей, первый запрос, тяжёлый поиск)
     private val ragClient = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(120, TimeUnit.SECONDS)
         .build()
 
     private val gson = Gson()
@@ -659,7 +662,10 @@ class ChatRepository(
         val baseUrl = BuildConfig.RAG_SERVICE_URL.trimEnd('/')
         val url = "$baseUrl/search"
         // Больше чанков — выше шанс захватить нужный фрагмент (в диссертациях/PDF много имён, семантика размазана)
-        val body = """{"query":${gson.toJson(query)},"top_k":10}"""
+        val minScore = getRagMinScore().coerceIn(0.0, 1.0)
+        val useReranker = getRagUseReranker()
+        Log.d("ChatRepository", "RAG request: min_score=$minScore, use_reranker=$useReranker")
+        val body = """{"query":${gson.toJson(query)},"top_k":10,"min_score":$minScore,"use_reranker":$useReranker}"""
         val request = Request.Builder()
             .url(url)
             .post(body.toRequestBody("application/json; charset=utf-8".toMediaType()))
@@ -672,7 +678,9 @@ class ChatRepository(
                 }
                 val json = response.body?.string() ?: return@use emptyList<RagChunk>()
                 val parsed = gson.fromJson(json, RagSearchResponse::class.java)
-                parsed.chunks ?: emptyList()
+                val chunks = parsed.chunks ?: emptyList()
+                Log.d("ChatRepository", "RAG response: ${chunks.size} chunks (min_score=$minScore)")
+                chunks
             }
         } catch (e: Exception) {
             Log.w("ChatRepository", "RAG fetch failed: ${e.message}")

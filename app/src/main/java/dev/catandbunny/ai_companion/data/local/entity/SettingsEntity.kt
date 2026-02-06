@@ -18,5 +18,9 @@ data class SettingsEntity(
     /** Telegram chat_id для отправки рекомендаций (например по портфелю) в Telegram */
     val telegramChatId: String = "",
     /** Режим RAG: вопрос → поиск релевантных чанков по индексу → объединение с вопросом → запрос к LLM */
-    val ragEnabled: Boolean = false
+    val ragEnabled: Boolean = false,
+    /** Порог релевантности RAG (0.0–1.0): чанки с score ниже не отправляются в контекст */
+    val ragMinScore: Double = 0.0,
+    /** Использовать reranker (cross-encoder) для переранжирования кандидатов на сервере RAG */
+    val ragUseReranker: Boolean = false
 )

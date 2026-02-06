@@ -47,6 +47,8 @@ fun SettingsScreen(
     val currencyIntervalMinutes by viewModel.currencyIntervalMinutes.collectAsState()
     val telegramChatId by viewModel.telegramChatId.collectAsState()
     val ragEnabled by viewModel.ragEnabled.collectAsState()
+    val ragMinScore by viewModel.ragMinScore.collectAsState()
+    val ragUseReranker by viewModel.ragUseReranker.collectAsState()
     val availableModels = viewModel.availableModels
     val context = LocalContext.current
     val requestNotificationPermission = rememberLauncherForActivityResult(
@@ -510,33 +512,86 @@ fun SettingsScreen(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(8.dp)
             ) {
-                Row(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(16.dp)
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Включить RAG",
-                            style = MaterialTheme.typography.labelLarge
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = if (ragEnabled) {
-                                "Ответы с учётом базы знаний"
-                            } else {
-                                "Выключено"
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Включить RAG",
+                                style = MaterialTheme.typography.labelLarge
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = if (ragEnabled) {
+                                    "Ответы с учётом базы знаний"
+                                } else {
+                                    "Выключено"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = ragEnabled,
+                            onCheckedChange = { viewModel.updateRagEnabled(it) }
                         )
                     }
-                    Switch(
-                        checked = ragEnabled,
-                        onCheckedChange = { viewModel.updateRagEnabled(it) }
-                    )
+                    if (ragEnabled) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Использовать Reranker",
+                                    style = MaterialTheme.typography.labelLarge
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "Переранжирование результатов cross-encoder моделью",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Switch(
+                                checked = ragUseReranker,
+                                onCheckedChange = { viewModel.updateRagUseReranker(it) }
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "Порог релевантности (чанки с score ниже не попадают в контекст)",
+                            style = MaterialTheme.typography.labelMedium
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = String.format("%.2f", ragMinScore),
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Slider(
+                                value = ragMinScore.toFloat(),
+                                onValueChange = { viewModel.updateRagMinScore(it.toDouble()) },
+                                valueRange = 0f..1f,
+                                steps = 19,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
                 }
             }
         }

@@ -24,6 +24,20 @@ class DatabaseRepository(private val database: AppDatabase) {
         }
     }
 
+    /**
+     * Полная очистка текущей беседы: удаление всех сообщений и сброс счётчика токенов.
+     * После вызова следующий запрос к боту пойдёт без истории (только системный промпт + RAG + новый вопрос).
+     */
+    suspend fun clearConversation() {
+        try {
+            database.chatMessageDao().deleteAllMessages()
+            saveConversationState(0)
+            Log.d("DatabaseRepository", "Беседа очищена (сообщения + состояние)")
+        } catch (e: Exception) {
+            Log.e("DatabaseRepository", "Ошибка при очистке беседы", e)
+        }
+    }
+
     suspend fun loadMessages(): List<ChatMessage> {
         return try {
             Log.d("DatabaseRepository", "=== loadMessages ===")
@@ -50,7 +64,9 @@ class DatabaseRepository(private val database: AppDatabase) {
         currencyNotificationEnabled: Boolean = false,
         currencyIntervalMinutes: Int = 5,
         telegramChatId: String = "",
-        ragEnabled: Boolean = false
+        ragEnabled: Boolean = false,
+        ragMinScore: Double = 0.0,
+        ragUseReranker: Boolean = false
     ) {
         try {
             val settings = SettingsEntity(
@@ -62,7 +78,9 @@ class DatabaseRepository(private val database: AppDatabase) {
                 currencyNotificationEnabled = currencyNotificationEnabled,
                 currencyIntervalMinutes = currencyIntervalMinutes,
                 telegramChatId = telegramChatId,
-                ragEnabled = ragEnabled
+                ragEnabled = ragEnabled,
+                ragMinScore = ragMinScore.coerceIn(0.0, 1.0),
+                ragUseReranker = ragUseReranker
             )
             database.settingsDao().insertSettings(settings)
         } catch (e: Exception) {

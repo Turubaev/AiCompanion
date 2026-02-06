@@ -5,7 +5,10 @@
 Использование:
   python search.py "инвестиции и дивиденды"
   python search.py "кто такой Глазунов Анатолий" 10
+  set RAG_MIN_SCORE=0.8        (CMD) — только чанки с score >= 0.8
+  $env:RAG_MIN_SCORE="0.8"     (PowerShell)
 """
+import os
 import sys
 
 
@@ -27,7 +30,18 @@ def main() -> None:
         print("Index not found. Run build_index.py first.")
         sys.exit(1)
 
-    results = search(query, top_k=top_k)
+    raw = os.environ.get("RAG_MIN_SCORE", "").strip()
+    try:
+        min_score = float(raw) if raw else 0.0
+    except (TypeError, ValueError):
+        min_score = 0.0
+    use_reranker = os.environ.get("RAG_USE_RERANKER", "").strip().lower() in ("1", "true", "yes")
+    if min_score > 0:
+        print(f"min_score (filter): {min_score}\n")
+    if use_reranker:
+        print("use_reranker: true\n")
+
+    results = search(query, top_k=top_k, min_score=min_score, use_reranker=use_reranker)
     print(f"Query: {query}\n")
     for i, r in enumerate(results, 1):
         print(f"--- {i} (score: {r['score']:.4f}) [{r['doc_id']}] {r.get('section', '')} ---")
