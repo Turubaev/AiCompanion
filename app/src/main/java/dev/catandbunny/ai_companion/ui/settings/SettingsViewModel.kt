@@ -62,6 +62,14 @@ class SettingsViewModel(
     private val _ragEnabled = MutableStateFlow(false)
     val ragEnabled: StateFlow<Boolean> = _ragEnabled.asStateFlow()
 
+    // Порог релевантности RAG (0.0–1.0): чанки с score ниже не попадают в контекст
+    private val _ragMinScore = MutableStateFlow(0.0)
+    val ragMinScore: StateFlow<Double> = _ragMinScore.asStateFlow()
+
+    // Использовать cross-encoder reranker для переранжирования результатов RAG
+    private val _ragUseReranker = MutableStateFlow(false)
+    val ragUseReranker: StateFlow<Boolean> = _ragUseReranker.asStateFlow()
+
     init {
         loadSettingsFromDatabase()
         viewModelScope.launch {
@@ -75,10 +83,15 @@ class SettingsViewModel(
                 SixSettings(prompt, temp, model, compression, currencyEnabled, false)
             }.combine(_ragEnabled) { six, ragEnabled ->
                 six.copy(ragEnabled = ragEnabled)
-            }.combine(_currencyIntervalMinutes) { six, currencyInterval ->
-                Pair(six, currencyInterval)
-            }.combine(_telegramChatId) { pair, chatId ->
-                val (six, interval) = pair
+            }.combine(_ragMinScore) { six, ragMinScore ->
+                Pair(six, ragMinScore)
+            }.combine(_currencyIntervalMinutes) { pair, currencyInterval ->
+                Triple(pair.first, pair.second, currencyInterval)
+            }.combine(_telegramChatId) { triple, chatId ->
+                Pair(triple, chatId)
+            }.combine(_ragUseReranker) { pair, ragUseRerankerVal ->
+                val (triple, chatId) = pair
+                val (six, ragMinScoreVal, interval) = triple
                 databaseRepository?.saveSettings(
                     six.prompt,
                     six.temperature,
@@ -87,7 +100,9 @@ class SettingsViewModel(
                     currencyNotificationEnabled = six.currencyEnabled,
                     currencyIntervalMinutes = interval,
                     telegramChatId = chatId,
-                    ragEnabled = six.ragEnabled
+                    ragEnabled = six.ragEnabled,
+                    ragMinScore = ragMinScoreVal,
+                    ragUseReranker = ragUseRerankerVal
                 )
             }.collect {}
         }
@@ -106,6 +121,8 @@ class SettingsViewModel(
                     _currencyIntervalMinutes.value = it.currencyIntervalMinutes.coerceIn(1, 30)
                     _telegramChatId.value = it.telegramChatId
                     _ragEnabled.value = it.ragEnabled
+                    _ragMinScore.value = it.ragMinScore.coerceIn(0.0, 1.0)
+                    _ragUseReranker.value = it.ragUseReranker
                 }
             } catch (e: Exception) {
                 // Игнорируем ошибки загрузки
@@ -164,4 +181,16 @@ class SettingsViewModel(
     }
 
     fun getRagEnabled(): Boolean = _ragEnabled.value
+
+    fun updateRagMinScore(score: Double) {
+        _ragMinScore.value = score.coerceIn(0.0, 1.0)
+    }
+
+    fun getRagMinScore(): Double = _ragMinScore.value
+
+    fun updateRagUseReranker(use: Boolean) {
+        _ragUseReranker.value = use
+    }
+
+    fun getRagUseReranker(): Boolean = _ragUseReranker.value
 }

@@ -45,9 +45,13 @@ python search.py "Kotlin Compose архитектура"
 
 ```bash
 python rag_server.py --port 5001
+# с порогом релевантности (отсечение чанков с score < 0.5):
+python rag_server.py --port 5001 --min-score 0.5
+# с reranker (cross-encoder для переранжирования, лучше релевантность, медленнее):
+python rag_server.py --port 5001 --reranker
 ```
 
-- **POST** `/search` — тело `{"query": "текст запроса", "top_k": 5}` → ответ `{"chunks": [{"text": "...", "score": ...}, ...]}`.
+- **POST** `/search` — тело `{"query": "текст запроса", "top_k": 5, "min_score": 0.5, "use_reranker": false}` → ответ `{"chunks": [{"text": "...", "score": ...}, ...]}`. Параметр `min_score` (опционально): чанки с `score < min_score` не возвращаются. Параметр `use_reranker`: переранжирование через cross-encoder (BAAI/bge-reranker-base).
 - **GET** `/health` — проверка готовности и числа загруженных чанков.
 
 В приложении в настройках включается «Включить RAG»; URL сервера задаётся в `local.properties` как `RAG_SERVICE_URL=http://10.0.2.2:5001` (эмулятор) или IP хоста.
