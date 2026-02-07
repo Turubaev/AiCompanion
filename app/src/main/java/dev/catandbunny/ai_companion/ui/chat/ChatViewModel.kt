@@ -104,73 +104,10 @@ class ChatViewModel(
                     Log.d("ChatViewModel", "Загружено состояние: accumulatedTokens=${it.accumulatedCompressedTokens}")
                 }
                 
-                // При старте создаем саммари из всех сообщений
-                val nonSummaryMessages = savedMessages.filter { !it.isSummary }
-                Log.d("ChatViewModel", "Не-summary сообщений: ${nonSummaryMessages.size}, всего сообщений: ${savedMessages.size}")
-                
-                if (nonSummaryMessages.isNotEmpty()) {
-                    Log.d("ChatViewModel", "Найдено ${nonSummaryMessages.size} не-summary сообщений, создаем саммари")
-                    val systemPrompt = getSystemPrompt()
-                    val model = getModel()
-                    Log.d("ChatViewModel", "Вызываем historyCompressor.createSummary с ${nonSummaryMessages.size} сообщениями")
-                    val summaryResult = historyCompressor.createSummary(nonSummaryMessages, model)
-                    
-                    summaryResult.fold(
-                        onSuccess = { result ->
-                            Log.d("ChatViewModel", "Саммари успешно создано, длина: ${result.summary.length}, первые 200 символов: ${result.summary.take(200)}...")
-                            val compressedTokens = nonSummaryMessages.sumOf { message ->
-                                if (!message.isFromUser && message.responseMetadata != null) {
-                                    message.responseMetadata.tokensUsed
-                                } else {
-                                    0
-                                }
-                            }
-                            
-                            val tokensToAccumulate = compressedTokens + result.tokensUsed
-                            val newAccumulatedTokens = _accumulatedCompressedTokens.value + tokensToAccumulate
-                            _accumulatedCompressedTokens.value = newAccumulatedTokens
-                            
-                            val summaryMessage = ChatMessage(
-                                text = result.summary,
-                                isFromUser = false,
-                                isSummary = true
-                            )
-                            
-                            // Сохраняем только саммари в БД (удаляя все старые сообщения)
-                            Log.d("ChatViewModel", "Сохраняем саммари в БД, удаляя старые сообщения")
-                            databaseRepository?.saveMessages(listOf(summaryMessage))
-                            databaseRepository?.saveConversationState(newAccumulatedTokens)
-                            Log.d("ChatViewModel", "Саммари сохранено в БД")
-                            
-                            // Показываем саммари в UI
-                            _messages.value = listOf(summaryMessage)
-                            Log.d("ChatViewModel", "Саммари отображено в UI, _messages.value.size=${_messages.value.size}")
-                        },
-                        onFailure = { error ->
-                            Log.e("ChatViewModel", "Ошибка при создании саммари при старте", error)
-                            error.printStackTrace()
-                            // В случае ошибки показываем существующие сообщения
-                            val existingSummary = savedMessages.filter { it.isSummary }
-                            if (existingSummary.isNotEmpty()) {
-                                _messages.value = existingSummary
-                                Log.d("ChatViewModel", "Показаны существующие саммари из-за ошибки: ${existingSummary.size}")
-                            } else {
-                                _messages.value = emptyList()
-                                Log.d("ChatViewModel", "Нет саммари, показываем пустой список")
-                            }
-                        }
-                    )
-                } else {
-                    // Если есть только саммари, показываем его
-                    val existingSummary = savedMessages.filter { it.isSummary }
-                    if (existingSummary.isNotEmpty()) {
-                        _messages.value = existingSummary
-                        Log.d("ChatViewModel", "Показано существующее саммари: ${existingSummary.size}, текст: ${existingSummary.first().text.take(200)}...")
-                    } else {
-                        _messages.value = emptyList()
-                        Log.d("ChatViewModel", "Нет сообщений в БД (ни саммари, ни обычных)")
-                    }
-                }
+                // Восстанавливаем историю из БД как есть, без создания саммари при старте.
+                // Саммари создаётся только при отправке сообщения, когда накоплено >= COMPRESSION_THRESHOLD.
+                _messages.value = savedMessages
+                Log.d("ChatViewModel", "Восстановлено сообщений в UI: ${savedMessages.size}")
                 Log.d("ChatViewModel", "=== loadDataFromDatabase КОНЕЦ ===")
             } catch (e: Exception) {
                 Log.e("ChatViewModel", "Ошибка при загрузке данных из БД", e)
