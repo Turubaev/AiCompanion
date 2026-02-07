@@ -16,9 +16,10 @@ import sys
 
 # Корень репозитория — на уровень выше embedding-index
 REPO_ROOT = Path(__file__).resolve().parent.parent
-# Для теста индексируем один PDF; можно вернуть список .md файлов
+# Индексируемые документы: оба PDF из корня проекта
 DEFAULT_DOCS = [
     REPO_ROOT / "Test_sample.pdf",
+    REPO_ROOT / "Test_sample_2.pdf",
 ]
 OUT_DIR = Path(__file__).resolve().parent / "output"
 JSON_INDEX = OUT_DIR / "index.json"

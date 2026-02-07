@@ -90,20 +90,34 @@ class ChatRepository(
 
             // RAG: поиск релевантных чанков; контекст добавляем отдельным сообщением прямо перед вопросом
             var ragContextMessage: String? = null
+            var ragSourceForFallback: String? = null
             if (getRagEnabled()) {
                 val ragChunks = withContext<List<RagChunk>>(Dispatchers.IO) {
                     fetchRagChunks(userMessage)
                 }
                 if (ragChunks.isNotEmpty()) {
-                    val contextBlock = ragChunks.joinToString("\n\n---\n\n") { it.text }
+                    val sourceCounts = ragChunks.mapNotNull { it.source?.takeIf { it.isNotBlank() } }.groupingBy { it }.eachCount()
+                    ragSourceForFallback = sourceCounts.maxWithOrNull(
+                        compareBy<Map.Entry<String, Int>> { it.value }.thenBy { it.key }
+                    )?.key ?: "база знаний"
+                    val contextBlock = ragChunks.joinToString("\n\n---\n\n") { chunk ->
+                        val source = chunk.source?.takeIf { it.isNotBlank() } ?: "база знаний"
+                        "[Источник: $source]\n${chunk.text}"
+                    }
                     ragContextMessage = """
-                        ВНИМАНИЕ: Ниже — приоритетный источник для ответа на следующий вопрос пользователя (фрагменты из базы знаний). Отвечай в первую очередь на основе этих фрагментов: если в них есть ответ на вопрос — формулируй его на их основе, не подменяй общими знаниями из обучения.
+                        ВНИМАНИЕ: Ниже — фрагменты из базы знаний с указанием источника для каждого. Отвечай в первую очередь на основе этих фрагментов; не подменяй их общими знаниями из обучения.
+                        ОБЯЗАТЕЛЬНО: в начале ответа или после первого предложения укажи источник в формате [Источник: имя_документа]. Для утверждений из контекста — имя файла (например Test_sample.pdf). Если утверждение не опирается на фрагменты, а на общие знания, указывай [Источник: Интернет]. Без указания источника ответ считается неполным.
 
                         $contextBlock
                     """.trimIndent()
                     Log.d("ChatRepository", "RAG: добавлено ${ragChunks.size} чанков в контекст")
                 } else {
-                    Log.d("ChatRepository", "RAG: чанки не получены (сервис недоступен или пустой ответ)")
+                    ragSourceForFallback = "Интернет"
+                    ragContextMessage = """
+                        В базе знаний нет релевантных фрагментов для этого запроса. Отвечай на основе общих знаний.
+                        ОБЯЗАТЕЛЬНО: указывай источник в формате [Источник: Интернет].
+                    """.trimIndent()
+                    Log.d("ChatRepository", "RAG: чанки не получены (сервис недоступен или пустой ответ) — источник: Интернет")
                 }
             }
             
@@ -247,12 +261,20 @@ class ChatRepository(
                             completionTokens = completionTokens
                         )
                         
+                        // При включённом RAG показываем один основной источник: убираем все [Источник: ...] из ответа модели и дописываем один верный (по чанкам)
+                        val responseToParse = if (ragSourceForFallback != null) {
+                            val withoutCitations = Regex("\\[Источник:\\s*[^\\]]*\\]").replace(finalResponse, "").trim()
+                            "$withoutCitations\n\n[Источник: $ragSourceForFallback]"
+                        } else {
+                            finalResponse
+                        }
+                        
                         // Пытаемся определить, является ли ответ JSON (финальный ТЗ) или текстовым (сбор требований)
                         Log.d("ChatRepository", "=== Парсинг ответа от бота ===")
-                        Log.d("ChatRepository", "botResponse length: ${finalResponse.length}")
-                        Log.d("ChatRepository", "botResponse preview: ${finalResponse.take(200)}...")
+                        Log.d("ChatRepository", "botResponse length: ${responseToParse.length}")
+                        Log.d("ChatRepository", "botResponse preview: ${responseToParse.take(200)}...")
                         
-                        val parseResult = parseResponse(finalResponse, userMessage)
+                        val parseResult = parseResponse(responseToParse, userMessage)
                         
                         Log.d("ChatRepository", "=== Результат парсинга ===")
                         Log.d("ChatRepository", "isRequirementsResponse: ${parseResult.isRequirementsResponse}")
@@ -679,7 +701,8 @@ class ChatRepository(
                 val json = response.body?.string() ?: return@use emptyList<RagChunk>()
                 val parsed = gson.fromJson(json, RagSearchResponse::class.java)
                 val chunks = parsed.chunks ?: emptyList()
-                Log.d("ChatRepository", "RAG response: ${chunks.size} chunks (min_score=$minScore)")
+                val sources = chunks.mapNotNull { it.source?.takeIf { it.isNotBlank() } }.distinct()
+                Log.d("ChatRepository", "RAG response: ${chunks.size} chunks (min_score=$minScore), sources=$sources")
                 chunks
             }
         } catch (e: Exception) {
@@ -688,6 +711,10 @@ class ChatRepository(
         }
     }
 
-    private data class RagChunk(val text: String, val score: Double = 0.0)
+    private data class RagChunk(
+        val text: String,
+        val score: Double = 0.0,
+        val source: String? = null  // имя документа для цитирования (например Test_sample.pdf)
+    )
     private data class RagSearchResponse(val chunks: List<RagChunk>?)
 }
