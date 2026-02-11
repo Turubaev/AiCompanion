@@ -35,6 +35,10 @@ class ChatViewModel(
     
     companion object {
         private const val COMPRESSION_THRESHOLD = 10 // Сжимать каждые 10 сообщений
+        /** Команда /help: бот отвечает о структуре проекта CloudBuddy на основе RAG (README + docs). */
+        private const val HELP_COMMAND = "/help"
+        /** Вопрос для LLM при /help — подставляется в запрос с принудительным RAG. */
+        private const val HELP_QUESTION = "Опиши структуру и архитектуру проекта CloudBuddy. Что есть в README и в папке docs? Дай краткий обзор по документации проекта."
     }
 
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
@@ -286,8 +290,14 @@ class ChatViewModel(
             val systemPrompt = getSystemPrompt()
             val temperature = getTemperature()
             val model = getModel()
-            Log.d("ChatViewModel", "Отправляем в repository.sendMessage: compressedMessages.size=${compressedMessages.size}, userMessage=${text.take(50)}...")
-            val result = repository.sendMessage(text, compressedMessages, systemPrompt, temperature, model)
+            // Команда /help с опциональным уточнением: "/help", "/help о чём приложение" и т.д.
+            val trimmed = text.trim()
+            val isHelpCommand = trimmed.equals(HELP_COMMAND, ignoreCase = true) ||
+                trimmed.lowercase().startsWith("$HELP_COMMAND ")
+            val messageToSend = if (isHelpCommand) HELP_QUESTION else text
+            val useRagForThisRequest = if (isHelpCommand) true else null
+            Log.d("ChatViewModel", "Отправляем в repository.sendMessage: compressedMessages.size=${compressedMessages.size}, userMessage=${messageToSend.take(50)}..., useRagForThisRequest=$useRagForThisRequest")
+            val result = repository.sendMessage(messageToSend, compressedMessages, systemPrompt, temperature, model, useRagForThisRequest)
 
             result.onSuccess { (botResponse, metadata) ->
                 // Вычисляем токены текущего запроса пользователя от API
