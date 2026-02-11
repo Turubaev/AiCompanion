@@ -8,19 +8,19 @@ r"""
   pip install -r requirements.txt
   python build_index.py
 
-По умолчанию читает Test_sample.pdf из корня проекта (поддерживаются также .md).
+По умолчанию индексирует проект CloudBuddy (README.md и все .md в папке docs).
+CloudBuddy должен лежать рядом с Ai_Companion (например AndroidStudioProjects/CloudBuddy).
 Сохраняет индекс в embedding-index/output/index.json и index.faiss.
 """
 from pathlib import Path
 import sys
 
-# Корень репозитория — на уровень выше embedding-index
+# Корень репозитория Ai_Companion — на уровень выше embedding-index
 REPO_ROOT = Path(__file__).resolve().parent.parent
-# Индексируемые документы: оба PDF из корня проекта
-DEFAULT_DOCS = [
-    REPO_ROOT / "Test_sample.pdf",
-    REPO_ROOT / "Test_sample_2.pdf",
-]
+# Проект CloudBuddy лежит рядом с Ai_Companion (в AndroidStudioProjects)
+CLOUDBUDDY_ROOT = REPO_ROOT.parent / "CloudBuddy"
+# Индексируемые документы: README и все .md в docs/ проекта CloudBuddy
+DEFAULT_DOCS = [CLOUDBUDDY_ROOT / "README.md"] + sorted((CLOUDBUDDY_ROOT / "docs").glob("*.md"))
 OUT_DIR = Path(__file__).resolve().parent / "output"
 JSON_INDEX = OUT_DIR / "index.json"
 FAISS_INDEX = OUT_DIR / "index.faiss"

@@ -14,8 +14,10 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import https from "https";
 import { execFile } from "child_process";
+import { execSync } from "child_process";
 import { fileURLToPath } from "url";
 import path from "path";
+import fs from "fs";
 import {
   CONTROL_ANDROID_EMULATOR_TOOL,
   handleControlAndroidEmulator,
@@ -39,6 +41,31 @@ const TELEGRAM_BOT_TOKEN = (process.env.TELEGRAM_BOT_TOKEN || "").trim();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+/** Корень папки с проектами (например AndroidStudioProjects); CloudBuddy лежит рядом с Ai_Companion */
+const PROJECTS_ROOT = path.resolve(__dirname, "..", "..");
+/** Известный репозиторий CloudBuddy: подстановка owner при запросе только по имени репо (удобство для одного репо; остальные репо — по переданным owner/repo). */
+const CLOUDBUDDY_GITHUB_OWNER = "Turubaev";
+const CLOUDBUDDY_GITHUB_REPO = "CloudBuddy";
+
+function normalizeRepo(owner, repo) {
+  const r = (repo || "").trim();
+  const o = (owner || "").trim();
+  if (!r) return { owner: o, repo: r };
+  if (r.toLowerCase() !== "cloudbuddy") return { owner: o, repo: r };
+  if (!o || o.toLowerCase() === "catandbunny") {
+    return { owner: CLOUDBUDDY_GITHUB_OWNER, repo: CLOUDBUDDY_GITHUB_REPO };
+  }
+  return { owner: o, repo: r === "cloudbuddy" ? CLOUDBUDDY_GITHUB_REPO : r };
+}
+
+function buildRepoNotFoundMessage(owner, repo, apiError) {
+  const url = "https://github.com/" + owner + "/" + repo;
+  let msg = "Репозиторий не найден или недоступен: " + owner + "/" + repo + ".\n";
+  msg += "Проверьте: 1) Откройте " + url + " — репо существует и имя владельца верное? ";
+  msg += "2) Если репо приватный — на VPS в окружении MCP должен быть задан GITHUB_PERSONAL_ACCESS_TOKEN с правами repo. ";
+  msg += "API: " + (apiError || "");
+  return msg;
+}
 
 /**
  * Выполняет HTTP запрос к GitHub API
@@ -350,6 +377,86 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
     },
     {
+      name: "get_git_branch",
+      description: "Получить текущую ветку Git для локального проекта (например CloudBuddy). project_path: имя папки проекта (CloudBuddy) или абсолютный путь к репозиторию.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          project_path: {
+            type: "string",
+            description: "Имя проекта (например CloudBuddy) или абсолютный путь к папке репозитория",
+          },
+        },
+        required: ["project_path"],
+      },
+    },
+    {
+      name: "list_git_branches",
+      description: "Показать список всех веток Git (локальных и удалённых) для локального проекта. project_path: имя папки (CloudBuddy) или абсолютный путь. Вызывай когда спрашивают про список веток, какие ветки есть.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          project_path: {
+            type: "string",
+            description: "Имя проекта (например CloudBuddy) или абсолютный путь к папке репозитория",
+          },
+        },
+        required: ["project_path"],
+      },
+    },
+    {
+      name: "list_repo_branches",
+      description: "Список веток любого репозитория на GitHub. Вызывай при вопросах про ветки в каком-либо репо. Параметры: owner (владелец, например Turubaev, Microsoft), repo (название репо, например CloudBuddy, vscode). Примеры: Turubaev/CloudBuddy, facebook/react.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          owner: {
+            type: "string",
+            description: "Владелец репозитория на GitHub (логин или организация), например Turubaev, Microsoft",
+          },
+          repo: {
+            type: "string",
+            description: "Название репозитория на GitHub, например CloudBuddy, vscode",
+          },
+          limit: {
+            type: "number",
+            description: "Максимум веток в ответе (по умолчанию 100)",
+            default: 100,
+          },
+        },
+        required: ["owner", "repo"],
+      },
+    },
+    {
+      name: "list_pull_requests",
+      description: "Список pull request любого репозитория на GitHub. Вызывай при вопросах про PR, пулл-реквесты. Параметры: owner и repo (как в list_repo_branches), state: open, closed или all. Примеры репо: Turubaev/CloudBuddy, microsoft/vscode.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          owner: {
+            type: "string",
+            description: "Владелец репозитория на GitHub (логин или организация), например Turubaev, Microsoft",
+          },
+          repo: {
+            type: "string",
+            description: "Название репозитория на GitHub, например CloudBuddy, vscode",
+          },
+          state: {
+            type: "string",
+            description: "Состояние PR: open, closed или all",
+            enum: ["open", "closed", "all"],
+            default: "open",
+          },
+          limit: {
+            type: "number",
+            description: "Максимум PR в ответе (по умолчанию 20)",
+            default: 20,
+          },
+        },
+        required: ["owner", "repo"],
+      },
+    },
+    {
       name: "get_instruments_for_budget",
       description: "Найти бумаги (акции, облигации, ETF) в рублях, которые можно купить на указанную сумму. Вызывай когда пользователь спрашивает что купить на N рублей, как распределить средства, какие бумаги/облигации/акции купить для портфеля. Возвращает тикер, цену, лот, сколько лотов можно купить.",
       inputSchema: {
@@ -465,6 +572,144 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return { content: [{ type: "text", text: "**Директория:** " + filePath + "\n\n" + text }] };
       }
       throw new Error("Неизвестный тип: " + result.type);
+    });
+  }
+
+  if (name === "get_git_branch") {
+    return handleTool(name, () => {
+      const projectPath = (args?.project_path || "").trim();
+      if (!projectPath) {
+        return { content: [{ type: "text", text: "Укажите project_path (например CloudBuddy или абсолютный путь)." }], isError: true };
+      }
+      const repoDir = path.isAbsolute(projectPath) ? projectPath : path.join(PROJECTS_ROOT, projectPath);
+      if (!fs.existsSync(repoDir)) {
+        const hint = "Инструменты Git выполняются на сервере, где запущен MCP. Папки " + projectPath + " здесь нет. Чтобы смотреть ветки проекта с вашего ПК (например CloudBuddy), запустите MCP локально: node run-tcp.js 8080 и укажите в приложении хост/порт этого ПК.";
+        return { content: [{ type: "text", text: "Папка не найдена: " + repoDir + ".\n\n" + hint }], isError: true };
+      }
+      try {
+        const branch = execSync("git", ["-C", repoDir, "rev-parse", "--abbrev-ref", "HEAD"], { encoding: "utf-8" }).trim();
+        return { content: [{ type: "text", text: "Текущая ветка: **" + branch + "**\nРепозиторий: " + repoDir }] };
+      } catch (e) {
+        const msg = e.stderr && e.stderr.toString().trim() ? e.stderr.toString().trim() : e.message;
+        const hint = fs.existsSync(path.join(repoDir, ".git")) ? "" : " Возможно, это не git-репозиторий или папка пуста.";
+        return { content: [{ type: "text", text: "Ошибка при получении ветки для " + repoDir + ": " + msg + "." + hint }], isError: true };
+      }
+    });
+  }
+
+  if (name === "list_git_branches") {
+    return handleTool(name, () => {
+      const projectPath = (args?.project_path || "").trim();
+      if (!projectPath) {
+        return { content: [{ type: "text", text: "Укажите project_path (например CloudBuddy или абсолютный путь)." }], isError: true };
+      }
+      const repoDir = path.isAbsolute(projectPath) ? projectPath : path.join(PROJECTS_ROOT, projectPath);
+      if (!fs.existsSync(repoDir)) {
+        const hint = "Инструменты Git выполняются на сервере, где запущен MCP. Папки " + projectPath + " здесь нет. Чтобы смотреть ветки проекта с вашего ПК (например CloudBuddy), запустите MCP локально: node run-tcp.js 8080 и укажите в приложении хост/порт этого ПК.";
+        return { content: [{ type: "text", text: "Папка не найдена: " + repoDir + ".\n\n" + hint }], isError: true };
+      }
+      try {
+        const out = execSync("git", ["-C", repoDir, "branch", "-a"], { encoding: "utf-8" });
+        const lines = out.split("\n").map((s) => s.trim()).filter(Boolean);
+        const list = lines.map((line) => {
+          const isCurrent = line.startsWith("*");
+          const name = line.replace(/^\*\s*/, "").trim();
+          return (isCurrent ? "→ " : "  ") + name;
+        });
+        return { content: [{ type: "text", text: "Ветки в " + repoDir + " (текущая отмечена →):\n\n" + list.join("\n") }] };
+      } catch (e) {
+        const msg = e.stderr && e.stderr.toString().trim() ? e.stderr.toString().trim() : e.message;
+        const hint = fs.existsSync(path.join(repoDir, ".git")) ? "" : " Возможно, это не git-репозиторий.";
+        return { content: [{ type: "text", text: "Ошибка при получении списка веток для " + repoDir + ": " + msg + "." + hint }], isError: true };
+      }
+    });
+  }
+
+  if (name === "list_repo_branches") {
+    return handleTool(name, async () => {
+      let owner = (args?.owner || "").trim();
+      let repo = (args?.repo || "").trim();
+      const norm = normalizeRepo(owner, repo);
+      owner = norm.owner;
+      repo = norm.repo;
+      if (!owner || !repo) {
+        return { content: [{ type: "text", text: "Укажите owner и repo (любой репозиторий на GitHub, например owner=Microsoft, repo=vscode). Для CloudBuddy: owner=Turubaev, repo=CloudBuddy." }], isError: true };
+      }
+      const perPage = Math.min(100, Math.max(1, Number(args?.limit) || 100));
+      const tryRepo = (repoName) => "/repos/" + encodeURIComponent(owner) + "/" + encodeURIComponent(repoName) + "/branches?per_page=" + perPage;
+      let branches;
+      try {
+        branches = await githubApiRequest(tryRepo(repo));
+      } catch (e) {
+        if (e.message && e.message.includes("Not Found") && repo.toLowerCase() === "cloudbuddy") {
+          try {
+            branches = await githubApiRequest(tryRepo(CLOUDBUDDY_GITHUB_REPO));
+            repo = CLOUDBUDDY_GITHUB_REPO;
+          } catch (e2) {
+            return { content: [{ type: "text", text: buildRepoNotFoundMessage(owner, CLOUDBUDDY_GITHUB_REPO, e2.message) }], isError: true };
+          }
+        } else {
+          return { content: [{ type: "text", text: buildRepoNotFoundMessage(owner, repo, e.message) }], isError: true };
+        }
+      }
+      if (!Array.isArray(branches)) {
+        return { content: [{ type: "text", text: "Неожиданный ответ API или репозиторий не найден." }], isError: true };
+      }
+      const lines = branches.map((b, i) => (i + 1) + ". " + (b.name || "?") + (b.protected ? " (protected)" : ""));
+      const text = lines.length > 0
+        ? "Ветки в репозитории " + owner + "/" + repo + ":\n\n" + lines.join("\n")
+        : "В репозитории " + owner + "/" + repo + " нет веток или он недоступен.";
+      return { content: [{ type: "text", text }] };
+    });
+  }
+
+  if (name === "list_pull_requests") {
+    return handleTool(name, async () => {
+      let owner = (args?.owner || "").trim();
+      let repo = (args?.repo || "").trim();
+      const norm = normalizeRepo(owner, repo);
+      owner = norm.owner;
+      repo = norm.repo;
+      if (!owner || !repo) {
+        return { content: [{ type: "text", text: "Укажите owner и repo (любой репозиторий на GitHub, например owner=Microsoft, repo=vscode). Для CloudBuddy: owner=Turubaev, repo=CloudBuddy." }], isError: true };
+      }
+      const state = (args?.state || "open").toLowerCase();
+      if (!["open", "closed", "all"].includes(state)) {
+        return { content: [{ type: "text", text: "state должен быть open, closed или all." }], isError: true };
+      }
+      const perPage = Math.min(100, Math.max(1, Number(args?.limit) || 20));
+      const tryRepo = (repoName) => "/repos/" + encodeURIComponent(owner) + "/" + encodeURIComponent(repoName) + "/pulls?state=" + state + "&per_page=" + perPage;
+      let prs;
+      try {
+        prs = await githubApiRequest(tryRepo(repo));
+      } catch (e) {
+        if (e.message && e.message.includes("Not Found") && repo.toLowerCase() === "cloudbuddy") {
+          try {
+            prs = await githubApiRequest(tryRepo(CLOUDBUDDY_GITHUB_REPO));
+            repo = CLOUDBUDDY_GITHUB_REPO;
+          } catch (e2) {
+            return { content: [{ type: "text", text: "Ошибка GitHub API: " + e2.message }], isError: true };
+          }
+        } else {
+          return { content: [{ type: "text", text: "Ошибка GitHub API: " + e.message }], isError: true };
+        }
+      }
+      if (!Array.isArray(prs)) {
+        return { content: [{ type: "text", text: "Неожиданный ответ API." }], isError: true };
+      }
+      const lines = prs.map((pr, i) => {
+        const num = pr.number;
+        const title = pr.title || "(без названия)";
+        const author = pr.user?.login || "?";
+        const head = pr.head?.ref || "?";
+        const base = pr.base?.ref || "?";
+        const url = pr.html_url || "";
+        return (i + 1) + ". #" + num + " **" + title + "**\n   " + author + " → " + head + " → " + base + "\n   " + url;
+      });
+      const text = lines.length > 0
+        ? "Pull requests (" + state + ") в " + owner + "/" + repo + ":\n\n" + lines.join("\n\n")
+        : "Нет pull request со состоянием " + state + " в " + owner + "/" + repo;
+      return { content: [{ type: "text", text }] };
     });
   }
 

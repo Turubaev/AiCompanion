@@ -19,8 +19,11 @@
 ```bash
 cd embedding-index
 python -m venv .venv
-.venv\Scripts\activate   # Windows
-# source .venv/bin/activate  # Linux/macOS
+# Windows: активация venv
+#   CMD:  .venv\Scripts\activate.bat
+#   PowerShell:  .venv\Scripts\Activate.ps1  (если скрипт есть)
+#   Без активации:  .venv\Scripts\python.exe build_index.py
+# Linux/macOS:  source .venv/bin/activate
 pip install -r requirements.txt
 python build_index.py
 ```

@@ -44,12 +44,16 @@ class ChatRepository(
 
     private val gson = Gson()
 
+    /**
+     * @param useRagForThisRequest если true — принудительно использовать RAG для этого запроса (например для /help); null — следовать настройке getRagEnabled()
+     */
     suspend fun sendMessage(
         userMessage: String,
         conversationHistory: List<ChatMessage>,
         systemPromptText: String,
         temperature: Double = 0.7,
-        model: String = "gpt-3.5-turbo"
+        model: String = "gpt-3.5-turbo",
+        useRagForThisRequest: Boolean? = null
     ): Result<Pair<String, ResponseMetadata>> {
         return try {
             val startTime = System.currentTimeMillis()
@@ -91,7 +95,8 @@ class ChatRepository(
             // RAG: поиск релевантных чанков; контекст добавляем отдельным сообщением прямо перед вопросом
             var ragContextMessage: String? = null
             var ragSourceForFallback: String? = null
-            if (getRagEnabled()) {
+            val useRag = useRagForThisRequest == true || (useRagForThisRequest != false && getRagEnabled())
+            if (useRag) {
                 val ragChunks = withContext<List<RagChunk>>(Dispatchers.IO) {
                     fetchRagChunks(userMessage)
                 }
