@@ -66,7 +66,8 @@ class DatabaseRepository(private val database: AppDatabase) {
         telegramChatId: String = "",
         ragEnabled: Boolean = false,
         ragMinScore: Double = 0.0,
-        ragUseReranker: Boolean = false
+        ragUseReranker: Boolean = false,
+        githubUsername: String = ""
     ) {
         try {
             val settings = SettingsEntity(
@@ -80,11 +81,26 @@ class DatabaseRepository(private val database: AppDatabase) {
                 telegramChatId = telegramChatId,
                 ragEnabled = ragEnabled,
                 ragMinScore = ragMinScore.coerceIn(0.0, 1.0),
-                ragUseReranker = ragUseReranker
+                ragUseReranker = ragUseReranker,
+                githubUsername = githubUsername.trim()
             )
             database.settingsDao().insertSettings(settings)
         } catch (e: Exception) {
             // Игнорируем ошибки сохранения
+        }
+    }
+
+    /**
+     * Добавляет одно сообщение ассистента в конец чата (например ревью PR) и сохраняет в БД.
+     */
+    suspend fun appendAssistantMessage(text: String) {
+        try {
+            val current = loadMessages()
+            val newMessage = ChatMessage(text = text, isFromUser = false, isSummary = false)
+            saveMessages(current + newMessage)
+            Log.d("DatabaseRepository", "appendAssistantMessage: добавлено ревью, всего сообщений ${current.size + 1}")
+        } catch (e: Exception) {
+            Log.e("DatabaseRepository", "Ошибка appendAssistantMessage", e)
         }
     }
 

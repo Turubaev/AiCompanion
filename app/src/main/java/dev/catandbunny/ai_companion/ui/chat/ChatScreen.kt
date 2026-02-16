@@ -77,6 +77,7 @@ fun ChatScreen(
             getRagEnabled = { settingsViewModel.getRagEnabled() },
             getRagMinScore = { settingsViewModel.getRagMinScore() },
             getRagUseReranker = { settingsViewModel.getRagUseReranker() },
+            getGitHubUsername = { settingsViewModel.getGitHubUsername() },
             databaseRepository = databaseRepository
         )
     )
@@ -99,6 +100,11 @@ fun ChatScreen(
                 PendingCurrencyNotification.setPendingMessage(null)
             }
         }
+    }
+
+    // При возврате на экран чата (в т.ч. из настроек) подтягиваем ревью PR, если указан GitHub username
+    LaunchedEffect(showSettings) {
+        if (!showSettings) viewModel.fetchPrReviewsIntoChat()
     }
 
     // Текст из демо (adb am start с EXTRA_DEMO_MESSAGE) — отправляем как сообщение пользователя

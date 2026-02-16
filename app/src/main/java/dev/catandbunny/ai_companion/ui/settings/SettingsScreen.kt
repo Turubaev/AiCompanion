@@ -49,6 +49,8 @@ fun SettingsScreen(
     val ragEnabled by viewModel.ragEnabled.collectAsState()
     val ragMinScore by viewModel.ragMinScore.collectAsState()
     val ragUseReranker by viewModel.ragUseReranker.collectAsState()
+    val githubUsername by viewModel.githubUsername.collectAsState()
+    val prReviewRegisterResult by viewModel.prReviewRegisterResult.collectAsState()
     val availableModels = viewModel.availableModels
     val context = LocalContext.current
     val requestNotificationPermission = rememberLauncherForActivityResult(
@@ -492,6 +494,53 @@ fun SettingsScreen(
                 placeholder = { Text("Например: 123456789") },
                 singleLine = true
             )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Text(
+                text = "Ревью PR (GitHub)",
+                style = MaterialTheme.typography.titleLarge
+            )
+
+            Text(
+                text = "GitHub username для получения ревью PR в чат. Укажите логин, под которым вы открываете PR (например в CloudBuddy). При открытии чата непрочитанные ревью подтягиваются и добавляются как сообщения ассистента.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            OutlinedTextField(
+                value = githubUsername,
+                onValueChange = { viewModel.updateGitHubUsername(it) },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("GitHub username") },
+                placeholder = { Text("Например: Turubaev") },
+                singleLine = true
+            )
+
+            Button(
+                onClick = { viewModel.registerPrReviewForTelegram() },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = githubUsername.isNotBlank()
+            ) {
+                Text("Привязать к ревью PR (отправка в Telegram)")
+            }
+
+            if (prReviewRegisterResult != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = prReviewRegisterResult!!,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (prReviewRegisterResult == "OK")
+                        MaterialTheme.colorScheme.primary
+                    else
+                        MaterialTheme.colorScheme.error
+                )
+                TextButton(onClick = { viewModel.clearPrReviewRegisterResult() }) {
+                    Text("Закрыть")
+                }
+            }
 
             Spacer(modifier = Modifier.height(24.dp))
 
