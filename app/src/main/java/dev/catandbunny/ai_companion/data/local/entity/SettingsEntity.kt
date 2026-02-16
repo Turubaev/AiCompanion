@@ -22,5 +22,7 @@ data class SettingsEntity(
     /** Порог релевантности RAG (0.0–1.0): чанки с score ниже не отправляются в контекст */
     val ragMinScore: Double = 0.0,
     /** Использовать reranker (cross-encoder) для переранжирования кандидатов на сервере RAG */
-    val ragUseReranker: Boolean = false
+    val ragUseReranker: Boolean = false,
+    /** GitHub username для получения ревью PR (привязка к автору PR в CloudBuddy и др.) */
+    val githubUsername: String = ""
 )

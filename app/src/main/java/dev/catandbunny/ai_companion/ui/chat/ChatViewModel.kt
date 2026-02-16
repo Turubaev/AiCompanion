@@ -3,11 +3,15 @@ package dev.catandbunny.ai_companion.ui.chat
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import dev.catandbunny.ai_companion.BuildConfig
+import dev.catandbunny.ai_companion.data.api.PrReviewItem
+import dev.catandbunny.ai_companion.data.api.fetchPrReviews
 import dev.catandbunny.ai_companion.data.repository.ChatRepository
 import dev.catandbunny.ai_companion.data.repository.DatabaseRepository
 import dev.catandbunny.ai_companion.model.ChatMessage
 import dev.catandbunny.ai_companion.utils.HistoryCompressor
 import dev.catandbunny.ai_companion.utils.TokenCounter
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -28,6 +32,7 @@ class ChatViewModel(
     private val getRagEnabled: () -> Boolean = { false },
     private val getRagMinScore: () -> Double = { 0.0 },
     private val getRagUseReranker: () -> Boolean = { false },
+    private val getGitHubUsername: () -> String = { "" },
     private val databaseRepository: DatabaseRepository? = null
 ) : ViewModel() {
     private val repository = ChatRepository(apiKey, getTelegramChatId, getRagEnabled, getRagMinScore, getRagUseReranker)
@@ -39,6 +44,15 @@ class ChatViewModel(
         private const val HELP_COMMAND = "/help"
         /** Вопрос для LLM при /help — подставляется в запрос с принудительным RAG. */
         private const val HELP_QUESTION = "Опиши структуру и архитектуру проекта CloudBuddy. Что есть в README и в папке docs? Дай краткий обзор по документации проекта."
+
+        private fun formatPrReviewMessage(r: PrReviewItem): String {
+            val prNum = when (r.prNumber) {
+                is Number -> (r.prNumber as Number).toString()
+                else -> r.prNumber.toString()
+            }
+            val titlePart = r.prTitle?.takeIf { it.isNotBlank() }?.let { " — $it" } ?: ""
+            return "Ревью PR #$prNum (${r.repo})$titlePart\n\n${r.reviewText}"
+        }
     }
 
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
@@ -95,28 +109,51 @@ class ChatViewModel(
                 if (savedMessages.isEmpty()) {
                     Log.d("ChatViewModel", "БД пуста, начинаем с чистого листа")
                     _messages.value = emptyList()
-                    return@launch
+                } else {
+                    savedMessages.forEachIndexed { index, message ->
+                        Log.d("ChatViewModel", "Сообщение $index: isSummary=${message.isSummary}, isFromUser=${message.isFromUser}, text=${message.text.take(100)}...")
+                    }
+                    val savedState = databaseRepository?.loadConversationState()
+                    savedState?.let {
+                        _accumulatedCompressedTokens.value = it.accumulatedCompressedTokens
+                        Log.d("ChatViewModel", "Загружено состояние: accumulatedTokens=${it.accumulatedCompressedTokens}")
+                    }
+                    _messages.value = savedMessages
+                    Log.d("ChatViewModel", "Восстановлено сообщений в UI: ${savedMessages.size}")
                 }
-                
-                savedMessages.forEachIndexed { index, message ->
-                    Log.d("ChatViewModel", "Сообщение $index: isSummary=${message.isSummary}, isFromUser=${message.isFromUser}, text=${message.text.take(100)}...")
-                }
-                
-                val savedState = databaseRepository?.loadConversationState()
-                savedState?.let {
-                    _accumulatedCompressedTokens.value = it.accumulatedCompressedTokens
-                    Log.d("ChatViewModel", "Загружено состояние: accumulatedTokens=${it.accumulatedCompressedTokens}")
-                }
-                
-                // Восстанавливаем историю из БД как есть, без создания саммари при старте.
-                // Саммари создаётся только при отправке сообщения, когда накоплено >= COMPRESSION_THRESHOLD.
-                _messages.value = savedMessages
-                Log.d("ChatViewModel", "Восстановлено сообщений в UI: ${savedMessages.size}")
+
+                // Загружаем ревью PR и добавляем в чат (даже при пустой БД — тогда ревью появятся первыми)
+                fetchPrReviewsIntoChat()
+
                 Log.d("ChatViewModel", "=== loadDataFromDatabase КОНЕЦ ===")
             } catch (e: Exception) {
                 Log.e("ChatViewModel", "Ошибка при загрузке данных из БД", e)
                 e.printStackTrace()
                 _messages.value = emptyList()
+            }
+        }
+    }
+
+    /**
+     * Запрашивает непрочитанные ревью PR с сервера, добавляет их в чат и обновляет UI.
+     * Вызывается при загрузке чата и при возврате на экран чата (чтобы подтянуть ревью после смены username в настройках).
+     */
+    fun fetchPrReviewsIntoChat() {
+        viewModelScope.launch {
+            val ghUser = getGitHubUsername().trim()
+            if (ghUser.isBlank() || databaseRepository == null) return@launch
+            withContext(Dispatchers.IO) {
+                val baseUrl = BuildConfig.PR_REVIEW_SERVICE_URL
+                val reviews = fetchPrReviews(baseUrl, ghUser)
+                for (r in reviews) {
+                    val text = formatPrReviewMessage(r)
+                    databaseRepository!!.appendAssistantMessage(text)
+                }
+                if (reviews.isNotEmpty()) {
+                    val updated = databaseRepository!!.loadMessages()
+                    _messages.value = updated
+                    Log.d("ChatViewModel", "Добавлено ревью PR в чат: ${reviews.size}, всего сообщений: ${updated.size}")
+                }
             }
         }
     }

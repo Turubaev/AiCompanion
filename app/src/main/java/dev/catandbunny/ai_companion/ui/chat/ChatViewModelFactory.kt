@@ -14,12 +14,13 @@ class ChatViewModelFactory(
     private val getRagEnabled: () -> Boolean = { false },
     private val getRagMinScore: () -> Double = { 0.0 },
     private val getRagUseReranker: () -> Boolean = { false },
+    private val getGitHubUsername: () -> String = { "" },
     private val databaseRepository: DatabaseRepository? = null
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(ChatViewModel::class.java)) {
-            return ChatViewModel(apiKey, getSystemPrompt, getTemperature, getModel, getHistoryCompressionEnabled, getTelegramChatId, getRagEnabled, getRagMinScore, getRagUseReranker, databaseRepository) as T
+            return ChatViewModel(apiKey, getSystemPrompt, getTemperature, getModel, getHistoryCompressionEnabled, getTelegramChatId, getRagEnabled, getRagMinScore, getRagUseReranker, getGitHubUsername, databaseRepository) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

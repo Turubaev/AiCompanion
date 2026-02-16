@@ -2,12 +2,16 @@ package dev.catandbunny.ai_companion.ui.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import dev.catandbunny.ai_companion.BuildConfig
+import dev.catandbunny.ai_companion.data.api.registerPrReviewTelegram
 import dev.catandbunny.ai_companion.data.repository.DatabaseRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private data class SixSettings(
     val prompt: String,
@@ -70,6 +74,14 @@ class SettingsViewModel(
     private val _ragUseReranker = MutableStateFlow(false)
     val ragUseReranker: StateFlow<Boolean> = _ragUseReranker.asStateFlow()
 
+    // GitHub username для получения ревью PR в чат
+    private val _githubUsername = MutableStateFlow("")
+    val githubUsername: StateFlow<String> = _githubUsername.asStateFlow()
+
+    // Результат привязки к ревью PR (Telegram): null, "OK", или текст ошибки
+    private val _prReviewRegisterResult = MutableStateFlow<String?>(null)
+    val prReviewRegisterResult: StateFlow<String?> = _prReviewRegisterResult.asStateFlow()
+
     init {
         loadSettingsFromDatabase()
         viewModelScope.launch {
@@ -90,7 +102,10 @@ class SettingsViewModel(
             }.combine(_telegramChatId) { triple, chatId ->
                 Pair(triple, chatId)
             }.combine(_ragUseReranker) { pair, ragUseRerankerVal ->
-                val (triple, chatId) = pair
+                Pair(pair, ragUseRerankerVal)
+            }.combine(_githubUsername) { pair, githubUser ->
+                val (prev, ragUseRerankerVal) = pair
+                val (triple, chatId) = prev
                 val (six, ragMinScoreVal, interval) = triple
                 databaseRepository?.saveSettings(
                     six.prompt,
@@ -102,7 +117,8 @@ class SettingsViewModel(
                     telegramChatId = chatId,
                     ragEnabled = six.ragEnabled,
                     ragMinScore = ragMinScoreVal,
-                    ragUseReranker = ragUseRerankerVal
+                    ragUseReranker = ragUseRerankerVal,
+                    githubUsername = githubUser
                 )
             }.collect {}
         }
@@ -123,6 +139,7 @@ class SettingsViewModel(
                     _ragEnabled.value = it.ragEnabled
                     _ragMinScore.value = it.ragMinScore.coerceIn(0.0, 1.0)
                     _ragUseReranker.value = it.ragUseReranker
+                    _githubUsername.value = it.githubUsername
                 }
             } catch (e: Exception) {
                 // Игнорируем ошибки загрузки
@@ -193,4 +210,29 @@ class SettingsViewModel(
     }
 
     fun getRagUseReranker(): Boolean = _ragUseReranker.value
+
+    fun updateGitHubUsername(username: String) {
+        _githubUsername.value = username.trim()
+    }
+
+    fun getGitHubUsername(): String = _githubUsername.value
+
+    /** Привязать текущие GitHub username и Telegram Chat ID к сервису ревью PR для доставки ревью в Telegram. */
+    fun registerPrReviewForTelegram() {
+        viewModelScope.launch {
+            _prReviewRegisterResult.value = null
+            val result = withContext(Dispatchers.IO) {
+                registerPrReviewTelegram(
+                    BuildConfig.PR_REVIEW_SERVICE_URL,
+                    _githubUsername.value,
+                    _telegramChatId.value
+                )
+            }
+            _prReviewRegisterResult.value = if (result) "OK" else "Ошибка: сервис недоступен или неверные данные"
+        }
+    }
+
+    fun clearPrReviewRegisterResult() {
+        _prReviewRegisterResult.value = null
+    }
 }
