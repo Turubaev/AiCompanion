@@ -20,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.painter.Painter
+import androidx.activity.compose.BackHandler
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.DisposableEffect
@@ -78,6 +79,8 @@ fun ChatScreen(
             getRagMinScore = { settingsViewModel.getRagMinScore() },
             getRagUseReranker = { settingsViewModel.getRagUseReranker() },
             getGitHubUsername = { settingsViewModel.getGitHubUsername() },
+            getSupportUserEmail = { settingsViewModel.getSupportUserEmail() },
+            getAutoIncludeSupportContext = { settingsViewModel.getAutoIncludeSupportContext() },
             databaseRepository = databaseRepository
         )
     )
@@ -186,6 +189,7 @@ fun ChatScreen(
 
     // Показываем экран настроек, если открыт
     if (showSettings) {
+        BackHandler(onBack = { showSettings = false })
         SettingsScreen(
             onBack = { showSettings = false },
             databaseRepository = databaseRepository
@@ -195,6 +199,7 @@ fun ChatScreen(
     
     // Показываем экран инструментов MCP, если открыт
     if (showMcpTools) {
+        BackHandler(onBack = { showMcpTools = false })
         McpToolsScreen(
             onBack = { showMcpTools = false }
         )
@@ -203,6 +208,7 @@ fun ChatScreen(
     
     // Показываем экран JSON, если выбран
     selectedMetadata?.let { metadata ->
+        BackHandler(onBack = { selectedMetadata = null })
         JsonViewScreen(
             metadata = metadata,
             onBack = { 
@@ -211,6 +217,9 @@ fun ChatScreen(
         )
         return
     }
+    
+    // Корневой экран чата: перехват "Назад", чтобы приложение не закрывалось
+    BackHandler { }
     
     Scaffold(
         modifier = modifier.fillMaxSize(),

@@ -496,6 +496,31 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
     },
     CONTROL_ANDROID_EMULATOR_TOOL,
+    // Support / CRM: контекст пользователя для support-ассистента
+    {
+      name: "get_user_support_context",
+      description: "Получить контекст поддержки пользователя по email: информация о пользователе, открытые тикеты, история обращений. Используется support-ассистентом для ответов с учётом тикетов и истории.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          user_email: {
+            type: "string",
+            description: "Email пользователя из контекста приложения",
+          },
+          include_tickets: {
+            type: "boolean",
+            description: "Включить открытые тикеты пользователя",
+            default: true,
+          },
+          include_history: {
+            type: "boolean",
+            description: "Включить историю обращений",
+            default: true,
+          },
+        },
+        required: ["user_email"],
+      },
+    },
   ];
 
   return { tools };
@@ -748,6 +773,53 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     return handleTool(name, async () => {
       const { content } = await handleControlAndroidEmulator(args || {});
       return { content };
+    });
+  }
+
+  if (name === "get_user_support_context") {
+    return handleTool(name, async () => {
+      const userEmail = (args?.user_email || "").toString().trim();
+      if (!userEmail) {
+        return { content: [{ type: "text", text: "Укажите user_email." }], isError: true };
+      }
+      const includeTickets = args?.include_tickets !== false;
+      const includeHistory = args?.include_history !== false;
+
+      // Заглушка CRM (заменить на реальную интеграцию: Zendesk, Help Scout и т.д.)
+      const userInfo = {
+        name: "Test User",
+        email: userEmail,
+        plan: "premium",
+        created_at: "2024-01-01",
+      };
+      const openTickets = includeTickets
+        ? [
+            {
+              id: "TICKET-123",
+              subject: "Проблема с авторизацией",
+              status: "open",
+              created_at: "2024-02-15",
+              last_message: "Не могу войти в приложение",
+            },
+          ]
+        : [];
+      const recentInteractions = includeHistory
+        ? [
+            {
+              type: "chat",
+              timestamp: "2024-02-14",
+              summary: "Пользователь спрашивал про сброс пароля",
+            },
+          ]
+        : [];
+
+      const payload = {
+        user_info: userInfo,
+        open_tickets: openTickets,
+        recent_interactions: recentInteractions,
+      };
+      const text = JSON.stringify(payload, null, 2);
+      return { content: [{ type: "text", text }] };
     });
   }
 

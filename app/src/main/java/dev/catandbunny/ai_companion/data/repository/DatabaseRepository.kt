@@ -67,7 +67,9 @@ class DatabaseRepository(private val database: AppDatabase) {
         ragEnabled: Boolean = false,
         ragMinScore: Double = 0.0,
         ragUseReranker: Boolean = false,
-        githubUsername: String = ""
+        githubUsername: String = "",
+        supportUserEmail: String = "",
+        autoIncludeSupportContext: Boolean = false
     ) {
         try {
             val settings = SettingsEntity(
@@ -82,7 +84,9 @@ class DatabaseRepository(private val database: AppDatabase) {
                 ragEnabled = ragEnabled,
                 ragMinScore = ragMinScore.coerceIn(0.0, 1.0),
                 ragUseReranker = ragUseReranker,
-                githubUsername = githubUsername.trim()
+                githubUsername = githubUsername.trim(),
+                supportUserEmail = supportUserEmail.trim(),
+                autoIncludeSupportContext = autoIncludeSupportContext
             )
             database.settingsDao().insertSettings(settings)
         } catch (e: Exception) {

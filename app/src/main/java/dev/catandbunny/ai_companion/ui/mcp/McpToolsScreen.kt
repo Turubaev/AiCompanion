@@ -11,6 +11,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.activity.compose.BackHandler
 import dev.catandbunny.ai_companion.mcp.github.McpRepository
 import dev.catandbunny.ai_companion.mcp.model.McpTool
 import kotlinx.coroutines.launch
@@ -56,6 +57,8 @@ fun McpToolsScreen(
             mcpRepository.disconnect()
         }
     }
+
+    BackHandler(onBack = onBack)
     
     Scaffold(
         topBar = {

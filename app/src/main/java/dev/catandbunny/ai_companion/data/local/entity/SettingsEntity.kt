@@ -24,5 +24,9 @@ data class SettingsEntity(
     /** Использовать reranker (cross-encoder) для переранжирования кандидатов на сервере RAG */
     val ragUseReranker: Boolean = false,
     /** GitHub username для получения ревью PR (привязка к автору PR в CloudBuddy и др.) */
-    val githubUsername: String = ""
+    val githubUsername: String = "",
+    /** Email пользователя для контекста поддержки (тикеты, история обращений через CRM MCP) */
+    val supportUserEmail: String = "",
+    /** Автоматически добавлять контекст поддержки (тикеты, история) в каждый запрос к боту */
+    val autoIncludeSupportContext: Boolean = false
 )
