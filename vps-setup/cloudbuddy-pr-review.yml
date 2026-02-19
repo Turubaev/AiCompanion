@@ -1,0 +1,50 @@
+# Copy this file to CloudBuddy repo as .github/workflows/pr-review.yml
+# In CloudBuddy repo: Settings -> Secrets and variables -> Actions:
+#   PR_REVIEW_WEBHOOK_URL = https://your-vps:3000/webhook/pr-review
+#   PR_REVIEW_WEBHOOK_SECRET = optional secret (set WEBHOOK_SECRET on server)
+name: PR Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get PR diff
+        run: |
+          git fetch origin ${{ github.event.pull_request.base.ref }}
+          git diff origin/${{ github.event.pull_request.base.ref }}...HEAD > diff.txt || true
+          # Limit size for API (~60KB)
+          head -c 60000 diff.txt > diff_trimmed.txt && mv diff_trimmed.txt diff.txt
+
+      - name: Call review webhook
+        env:
+          WEBHOOK_URL: ${{ secrets.PR_REVIEW_WEBHOOK_URL }}
+          WEBHOOK_SECRET: ${{ secrets.PR_REVIEW_WEBHOOK_SECRET }}
+        run: |
+          if [ -z "$WEBHOOK_URL" ]; then
+            echo "PR_REVIEW_WEBHOOK_URL secret is not set, skipping"
+            exit 0
+          fi
+          REPO="${{ github.repository }}"
+          PR_NUM="${{ github.event.pull_request.number }}"
+          AUTHOR="${{ github.event.pull_request.user.login }}"
+          TITLE="${{ github.event.pull_request.title }}"
+          BODY=$(jq -n --rawfile diff diff.txt --arg repo "$REPO" --argjson pr_number "$PR_NUM" --arg author "$AUTHOR" --arg title "$TITLE" '{diff: $diff, repo: $repo, pr_number: $pr_number, author: $author, pr_title: $title}')
+          if [ -n "$WEBHOOK_SECRET" ]; then
+            curl -sS -X POST "$WEBHOOK_URL" \
+              -H "Content-Type: application/json" \
+              -H "X-Webhook-Secret: $WEBHOOK_SECRET" \
+              -d "$BODY"
+          else
+            curl -sS -X POST "$WEBHOOK_URL" \
+              -H "Content-Type: application/json" \
+              -d "$BODY"
+          fi

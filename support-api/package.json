@@ -1,0 +1,13 @@
+{
+  "name": "support-api",
+  "version": "1.0.0",
+  "description": "Support tickets API: user context, ticket details, create ticket. Used by MCP on VPS.",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}

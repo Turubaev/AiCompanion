@@ -44,7 +44,12 @@ def main() -> None:
 
     doc_paths = [p for p in DEFAULT_DOCS if p.exists()]
     if not doc_paths:
-        print("No input documents found. Expected:", [str(p) for p in DEFAULT_DOCS], file=sys.stderr)
+        print("No input documents found.", file=sys.stderr)
+        print("Expected CloudBuddy repo next to Ai_Companion:", file=sys.stderr)
+        print("  ", CLOUDBUDDY_ROOT, file=sys.stderr)
+        print("  Files:", [str(p) for p in DEFAULT_DOCS], file=sys.stderr)
+        print("Clone or symlink CloudBuddy, e.g.:", file=sys.stderr)
+        print("  cd", REPO_ROOT.parent, "&& git clone <your-CloudBuddy-repo> CloudBuddy", file=sys.stderr)
         sys.exit(1)
 
     # Меньшие чанки (380 символов) — лучше вытаскивать отдельные персоны/факты из диссертаций и PDF

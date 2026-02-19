@@ -12,6 +12,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalContext
@@ -22,6 +24,7 @@ import android.Manifest
 import android.os.Build
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.activity.compose.BackHandler
 import dev.catandbunny.ai_companion.data.repository.DatabaseRepository
 import dev.catandbunny.ai_companion.worker.CurrencyScheduler
 
@@ -50,6 +53,8 @@ fun SettingsScreen(
     val ragMinScore by viewModel.ragMinScore.collectAsState()
     val ragUseReranker by viewModel.ragUseReranker.collectAsState()
     val githubUsername by viewModel.githubUsername.collectAsState()
+    val supportUserEmail by viewModel.supportUserEmail.collectAsState()
+    val autoIncludeSupportContext by viewModel.autoIncludeSupportContext.collectAsState()
     val prReviewRegisterResult by viewModel.prReviewRegisterResult.collectAsState()
     val availableModels = viewModel.availableModels
     val context = LocalContext.current
@@ -63,6 +68,8 @@ fun SettingsScreen(
     var showEditDialog by remember { mutableStateOf(false) }
     var showModelDropdown by remember { mutableStateOf(false) }
     var showCurrencyIntervalDropdown by remember { mutableStateOf(false) }
+
+    BackHandler(onBack = onBack)
 
     Scaffold(
         topBar = {
@@ -539,6 +546,64 @@ fun SettingsScreen(
                 )
                 TextButton(onClick = { viewModel.clearPrReviewRegisterResult() }) {
                     Text("Закрыть")
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Text(
+                text = "Настройки поддержки",
+                style = MaterialTheme.typography.titleLarge
+            )
+
+            Text(
+                text = "Email для контекста поддержки: тикеты и история обращений подставляются в запросы к боту (через CRM MCP). Команды в чате: /tickets, /ticket [id], /newticket [текст].",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                ) {
+                    OutlinedTextField(
+                        value = supportUserEmail,
+                        onValueChange = { viewModel.updateSupportUserEmail(it) },
+                        label = { Text("Email пользователя для поддержки") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email)
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Автоматически добавлять контекст поддержки",
+                            style = MaterialTheme.typography.labelLarge
+                        )
+                        Switch(
+                            checked = autoIncludeSupportContext,
+                            onCheckedChange = { viewModel.updateAutoIncludeSupportContext(it) }
+                        )
+                    }
+
+                    Text(
+                        text = "При включении в каждый запрос будет добавляться информация о ваших открытых тикетах и истории обращений.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
 

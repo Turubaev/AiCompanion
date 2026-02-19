@@ -6,13 +6,11 @@
 2. **Генерация эмбеддингов** — локально через `sentence-transformers` (модель `paraphrase-multilingual-mpnet-base-v2`, без API).
 3. **Сохранение индекса** — JSON (полный дамп чанков + векторы) и FAISS (быстрый поиск по косинусной близости).
 
-## Входные документы
+## Входные документы (RAG по CloudBuddy)
 
-По умолчанию для теста индексируется один файл из корня репозитория:
+По умолчанию индексируется **проект CloudBuddy**: `README.md` и все `.md` в папке `docs/`. Путь к CloudBuddy задаётся в `build_index.py`: репозиторий должен лежать **рядом** с Ai_Companion (например `AndroidStudioProjects/CloudBuddy` рядом с `AndroidStudioProjects/Ai_Companion`).
 
-- `Test_sample.pdf`
-
-Поддерживаются также `.md` файлы. Список задаётся в `build_index.py` (`DEFAULT_DOCS`); можно вернуть три .md профиля или комбинировать PDF и .md.
+Если папки CloudBuddy нет — скрипт выведет подсказку. Поддерживаются также `.md` и `.pdf`; список файлов можно изменить в `build_index.py` (`DEFAULT_DOCS`).
 
 ## Установка и запуск
 
@@ -72,3 +70,25 @@ python rag_server.py --port 5001 --reranker
 | `rag_server.py` | HTTP-сервер для RAG (поиск чанков по запросу). |
 
 Индекс подключён к чату AI Companion через режим RAG (включение в настройках).
+
+## Чеклист: RAG отвечает по проекту CloudBuddy
+
+1. **Репозиторий CloudBuddy** лежит рядом с Ai_Companion (например `D:\AndroidStudioProjects\CloudBuddy` рядом с `Ai_Companion`), в нём есть `README.md` и при необходимости папка `docs/` с `.md`.
+2. **Сборка индекса:** из корня проекта:
+   ```bash
+   cd embedding-index
+   .venv\Scripts\activate
+   python build_index.py
+   ```
+   В консоли должно быть что-то вроде `Chunked N docs into M chunks` и `Saved JSON index: ...`.
+3. **Запуск RAG-сервера:** в том же каталоге `embedding-index`:
+   ```bash
+   python rag_server.py --port 5001
+   ```
+   Сервер должен вывести `RAG index: ... chunks` и слушать порт 5001.
+4. **В приложении:** в `local.properties` задан `RAG_SERVICE_URL`:
+   - эмулятор: `RAG_SERVICE_URL=http://10.0.2.2:5001`;
+   - телефон в той же Wi‑Fi: `RAG_SERVICE_URL=http://<IP_вашего_ПК>:5001`.
+5. **В настройках приложения** включите «Включить RAG» (и при желании «Использовать Reranker», порог релевантности).
+
+После этого вопросы вроде «Почему не работает авторизация?» или «Опиши структуру CloudBuddy» будут опираться на документацию CloudBuddy. Команда `/help` принудительно использует RAG (даже если переключатель выключен).

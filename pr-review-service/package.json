@@ -1,0 +1,13 @@
+{
+  "name": "pr-review-service",
+  "version": "1.0.0",
+  "description": "Webhook service: receive PR diff from GitHub Action, generate review via OpenAI, serve reviews to app",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}

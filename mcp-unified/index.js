@@ -13,6 +13,7 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import https from "https";
+import http from "http";
 import { execFile } from "child_process";
 import { execSync } from "child_process";
 import { fileURLToPath } from "url";
@@ -38,6 +39,7 @@ const server = new Server(
 const GITHUB_TOKEN = process.env.GITHUB_PERSONAL_ACCESS_TOKEN || "";
 const TINKOFF_TOKEN = process.env.TINKOFF_INVEST_TOKEN || "";
 const TELEGRAM_BOT_TOKEN = (process.env.TELEGRAM_BOT_TOKEN || "").trim();
+const SUPPORT_API_URL = (process.env.SUPPORT_API_URL || "http://127.0.0.1:3010").replace(/\/$/, "");
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -65,6 +67,39 @@ function buildRepoNotFoundMessage(owner, repo, apiError) {
   msg += "2) Если репо приватный — на VPS в окружении MCP должен быть задан GITHUB_PERSONAL_ACCESS_TOKEN с правами repo. ";
   msg += "API: " + (apiError || "");
   return msg;
+}
+
+/**
+ * HTTP запрос к support-api (GET или POST).
+ * Возвращает { statusCode, body } или бросает ошибку.
+ */
+function supportApiRequest(path, method = "GET", body = null) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(path, SUPPORT_API_URL);
+    const isHttps = url.protocol === "https:";
+    const lib = isHttps ? https : http;
+    const options = {
+      hostname: url.hostname,
+      port: url.port || (isHttps ? 443 : 80),
+      path: url.pathname + url.search,
+      method,
+      headers: {},
+    };
+    if (body != null) {
+      options.headers["Content-Type"] = "application/json";
+      options.headers["Content-Length"] = Buffer.byteLength(JSON.stringify(body), "utf8");
+    }
+    const req = lib.request(options, (res) => {
+      let data = "";
+      res.on("data", (chunk) => { data += chunk; });
+      res.on("end", () => {
+        resolve({ statusCode: res.statusCode, body: data });
+      });
+    });
+    req.on("error", reject);
+    if (body != null) req.write(JSON.stringify(body));
+    req.end();
+  });
 }
 
 /**
@@ -496,6 +531,67 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
     },
     CONTROL_ANDROID_EMULATOR_TOOL,
+    // Support / CRM: контекст пользователя для support-ассистента
+    {
+      name: "get_user_support_context",
+      description: "Получить контекст поддержки пользователя по email: информация о пользователе, открытые тикеты, история обращений. Используется support-ассистентом для ответов с учётом тикетов и истории.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          user_email: {
+            type: "string",
+            description: "Email пользователя из контекста приложения",
+          },
+          include_tickets: {
+            type: "boolean",
+            description: "Включить открытые тикеты пользователя",
+            default: true,
+          },
+          include_history: {
+            type: "boolean",
+            description: "Включить историю обращений",
+            default: true,
+          },
+        },
+        required: ["user_email"],
+      },
+    },
+    {
+      name: "get_ticket_details",
+      description: "Получить детали тикета поддержки по id (например TICKET-1).",
+      inputSchema: {
+        type: "object",
+        properties: {
+          ticket_id: {
+            type: "string",
+            description: "Идентификатор тикета (TICKET-1, TICKET-2 и т.д.)",
+          },
+        },
+        required: ["ticket_id"],
+      },
+    },
+    {
+      name: "create_ticket",
+      description: "Создать новый тикет поддержки от имени пользователя.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          user_email: {
+            type: "string",
+            description: "Email пользователя",
+          },
+          message: {
+            type: "string",
+            description: "Текст обращения",
+          },
+          subject: {
+            type: "string",
+            description: "Тема тикета (опционально)",
+          },
+        },
+        required: ["user_email", "message"],
+      },
+    },
   ];
 
   return { tools };
@@ -748,6 +844,97 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     return handleTool(name, async () => {
       const { content } = await handleControlAndroidEmulator(args || {});
       return { content };
+    });
+  }
+
+  if (name === "get_user_support_context") {
+    return handleTool(name, async () => {
+      const userEmail = (args?.user_email || "").toString().trim();
+      if (!userEmail) {
+        return { content: [{ type: "text", text: "Укажите user_email." }], isError: true };
+      }
+      const includeTickets = args?.include_tickets !== false;
+      const includeHistory = args?.include_history !== false;
+      const path = "/user-context?email=" + encodeURIComponent(userEmail) +
+        "&include_tickets=" + (includeTickets ? "1" : "0") +
+        "&include_history=" + (includeHistory ? "1" : "0");
+      const { statusCode, body } = await supportApiRequest(path);
+      if (statusCode !== 200) {
+        let errMsg = "Support API error";
+        try {
+          const j = JSON.parse(body);
+          if (j.error) errMsg = j.error;
+        } catch (_) { errMsg = body || errMsg; }
+        return { content: [{ type: "text", text: errMsg }], isError: true };
+      }
+      const payload = JSON.parse(body);
+      return { content: [{ type: "text", text: JSON.stringify(payload, null, 2) }] };
+    });
+  }
+
+  if (name === "get_ticket_details") {
+    return handleTool(name, async () => {
+      const ticketId = (args?.ticket_id || "").toString().trim();
+      if (!ticketId) {
+        return { content: [{ type: "text", text: "Укажите ticket_id." }], isError: true };
+      }
+      const path = "/ticket/" + encodeURIComponent(ticketId);
+      const { statusCode, body } = await supportApiRequest(path);
+      if (statusCode === 404) {
+        try {
+          const j = JSON.parse(body);
+          return { content: [{ type: "text", text: j.error || "Тикет не найден" }], isError: true };
+        } catch (_) {
+          return { content: [{ type: "text", text: "Тикет не найден" }], isError: true };
+        }
+      }
+      if (statusCode !== 200) {
+        let errMsg = "Support API error";
+        try {
+          const j = JSON.parse(body);
+          if (j.error) errMsg = j.error;
+        } catch (_) { errMsg = body || errMsg; }
+        return { content: [{ type: "text", text: errMsg }], isError: true };
+      }
+      const ticket = JSON.parse(body);
+      const lines = [
+        "Тикет #" + ticket.id,
+        "Тема: " + (ticket.subject || ""),
+        "Статус: " + (ticket.status || ""),
+        "Создан: " + (ticket.created_at || ""),
+        "Последнее сообщение: " + (ticket.last_message || ""),
+        "",
+        "Сообщения:",
+        ...(ticket.messages || []).map((m) => "[" + (m.at || "") + "] " + (m.from || "") + ": " + (m.text || "")),
+      ];
+      return { content: [{ type: "text", text: lines.join("\n") }] };
+    });
+  }
+
+  if (name === "create_ticket") {
+    return handleTool(name, async () => {
+      const userEmail = (args?.user_email || "").toString().trim();
+      const message = (args?.message || "").toString().trim();
+      if (!userEmail) {
+        return { content: [{ type: "text", text: "Укажите user_email." }], isError: true };
+      }
+      if (!message) {
+        return { content: [{ type: "text", text: "Укажите message." }], isError: true };
+      }
+      const subject = (args?.subject || "").toString().trim() || undefined;
+      const body = { user_email: userEmail, message, subject };
+      const { statusCode, body: resBody } = await supportApiRequest("/ticket", "POST", body);
+      if (statusCode !== 201 && statusCode !== 200) {
+        let errMsg = "Не удалось создать тикет";
+        try {
+          const j = JSON.parse(resBody);
+          if (j.error) errMsg = j.error;
+        } catch (_) { errMsg = resBody || errMsg; }
+        return { content: [{ type: "text", text: errMsg }], isError: true };
+      }
+      const created = JSON.parse(resBody);
+      const text = "Тикет создан: " + created.id + "\nТема: " + (created.subject || "") + "\nСтатус: " + (created.status || "open");
+      return { content: [{ type: "text", text }] };
     });
   }
 

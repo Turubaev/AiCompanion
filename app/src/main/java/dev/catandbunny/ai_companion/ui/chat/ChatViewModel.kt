@@ -8,6 +8,7 @@ import dev.catandbunny.ai_companion.data.api.PrReviewItem
 import dev.catandbunny.ai_companion.data.api.fetchPrReviews
 import dev.catandbunny.ai_companion.data.repository.ChatRepository
 import dev.catandbunny.ai_companion.data.repository.DatabaseRepository
+import dev.catandbunny.ai_companion.data.repository.SupportContext
 import dev.catandbunny.ai_companion.model.ChatMessage
 import dev.catandbunny.ai_companion.utils.HistoryCompressor
 import dev.catandbunny.ai_companion.utils.TokenCounter
@@ -33,9 +34,19 @@ class ChatViewModel(
     private val getRagMinScore: () -> Double = { 0.0 },
     private val getRagUseReranker: () -> Boolean = { false },
     private val getGitHubUsername: () -> String = { "" },
+    private val getSupportUserEmail: () -> String = { "" },
+    private val getAutoIncludeSupportContext: () -> Boolean = { false },
     private val databaseRepository: DatabaseRepository? = null
 ) : ViewModel() {
-    private val repository = ChatRepository(apiKey, getTelegramChatId, getRagEnabled, getRagMinScore, getRagUseReranker)
+    private val repository = ChatRepository(
+        apiKey,
+        getTelegramChatId,
+        getRagEnabled,
+        getRagMinScore,
+        getRagUseReranker,
+        getSupportUserEmail,
+        getAutoIncludeSupportContext
+    )
     private val historyCompressor = HistoryCompressor(apiKey)
     
     companion object {
@@ -227,6 +238,25 @@ class ChatViewModel(
     fun sendMessage(text: String) {
         if (text.isBlank() || _isLoading.value) return
 
+        val trimmed = text.trim()
+        val lower = trimmed.lowercase()
+        when {
+            lower.startsWith("/tickets") -> {
+                viewModelScope.launch { handleTicketsCommand() }
+                return
+            }
+            lower.startsWith("/ticket") -> {
+                val arg = trimmed.substring(7.coerceAtMost(trimmed.length)).trim()
+                viewModelScope.launch { handleTicketDetailCommand(arg) }
+                return
+            }
+            lower.startsWith("/newticket") -> {
+                val arg = trimmed.substring(10.coerceAtMost(trimmed.length)).trim()
+                viewModelScope.launch { handleNewTicketCommand(arg) }
+                return
+            }
+        }
+
         // Отправляем запрос боту
         _isLoading.value = true
         _error.value = null
@@ -406,6 +436,68 @@ class ChatViewModel(
                 }
             }
         }
+    }
+
+    private suspend fun handleTicketsCommand() {
+        val email = getSupportUserEmail().trim()
+        if (email.isBlank()) {
+            appendSupportMessage("Сначала укажите ваш email в настройках поддержки (Настройки → Настройки поддержки).")
+            return
+        }
+        val context = withContext(Dispatchers.IO) { repository.getSupportContext(email) }
+        if (context?.open_tickets?.isNotEmpty() == true) {
+            val message = buildString {
+                appendLine("📋 Ваши открытые тикеты:")
+                context.open_tickets.forEachIndexed { index, ticket ->
+                    appendLine("${index + 1}. #${ticket.id} — ${ticket.subject}")
+                    appendLine("   Статус: ${ticket.status}")
+                    appendLine("   Последнее сообщение: ${ticket.last_message}")
+                    appendLine()
+                }
+                appendLine("Используйте /ticket [номер или id] для просмотра деталей.")
+            }
+            appendSupportMessage(message)
+        } else {
+            appendSupportMessage("У вас нет открытых тикетов.")
+        }
+    }
+
+    private suspend fun handleTicketDetailCommand(ticketId: String) {
+        if (ticketId.isBlank()) {
+            appendSupportMessage("Укажите номер или id тикета, например: /ticket 1 или /ticket TICKET-123")
+            return
+        }
+        val normalizedId = ticketId.trim()
+        val details = withContext(Dispatchers.IO) { repository.getTicketDetails(normalizedId) }
+        if (!details.isNullOrBlank()) {
+            appendSupportMessage(details)
+        } else {
+            appendSupportMessage("Тикет не найден или сервис недоступен.")
+        }
+    }
+
+    private suspend fun handleNewTicketCommand(message: String) {
+        if (message.isBlank()) {
+            appendSupportMessage("Укажите текст обращения, например: /newticket Не могу войти в приложение")
+            return
+        }
+        val email = getSupportUserEmail().trim()
+        if (email.isBlank()) {
+            appendSupportMessage("Сначала укажите ваш email в настройках поддержки.")
+            return
+        }
+        val result = withContext(Dispatchers.IO) { repository.createTicket(email, message) }
+        if (!result.isNullOrBlank()) {
+            appendSupportMessage(result)
+        } else {
+            appendSupportMessage("Не удалось создать тикет. Проверьте подключение к MCP и сервис поддержки.")
+        }
+    }
+
+    private suspend fun appendSupportMessage(text: String) {
+        val botMessage = ChatMessage(text = text, isFromUser = false)
+        _messages.value = _messages.value + botMessage
+        databaseRepository?.appendAssistantMessage(text)
     }
 
     fun clearError() {

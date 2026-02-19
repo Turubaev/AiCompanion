@@ -78,6 +78,14 @@ class SettingsViewModel(
     private val _githubUsername = MutableStateFlow("")
     val githubUsername: StateFlow<String> = _githubUsername.asStateFlow()
 
+    // Email пользователя для контекста поддержки (тикеты CRM)
+    private val _supportUserEmail = MutableStateFlow("")
+    val supportUserEmail: StateFlow<String> = _supportUserEmail.asStateFlow()
+
+    // Автоматически добавлять контекст поддержки в каждый запрос
+    private val _autoIncludeSupportContext = MutableStateFlow(false)
+    val autoIncludeSupportContext: StateFlow<Boolean> = _autoIncludeSupportContext.asStateFlow()
+
     // Результат привязки к ревью PR (Telegram): null, "OK", или текст ошибки
     private val _prReviewRegisterResult = MutableStateFlow<String?>(null)
     val prReviewRegisterResult: StateFlow<String?> = _prReviewRegisterResult.asStateFlow()
@@ -104,9 +112,15 @@ class SettingsViewModel(
             }.combine(_ragUseReranker) { pair, ragUseRerankerVal ->
                 Pair(pair, ragUseRerankerVal)
             }.combine(_githubUsername) { pair, githubUser ->
-                val (prev, ragUseRerankerVal) = pair
-                val (triple, chatId) = prev
-                val (six, ragMinScoreVal, interval) = triple
+                Pair(pair, githubUser)
+            }.combine(_supportUserEmail) { pair, supportEmail ->
+                Pair(pair, supportEmail)
+            }.combine(_autoIncludeSupportContext) { pair, autoSupport ->
+                val (prev, supportEmail) = pair
+                val (prev2, githubUser) = prev
+                val (pairWithChat, ragUseRerankerVal) = prev2
+                val (innerTriple, chatId) = pairWithChat
+                val (six, ragMinScoreVal, interval) = innerTriple
                 databaseRepository?.saveSettings(
                     six.prompt,
                     six.temperature,
@@ -118,7 +132,9 @@ class SettingsViewModel(
                     ragEnabled = six.ragEnabled,
                     ragMinScore = ragMinScoreVal,
                     ragUseReranker = ragUseRerankerVal,
-                    githubUsername = githubUser
+                    githubUsername = githubUser,
+                    supportUserEmail = supportEmail,
+                    autoIncludeSupportContext = autoSupport
                 )
             }.collect {}
         }
@@ -140,6 +156,8 @@ class SettingsViewModel(
                     _ragMinScore.value = it.ragMinScore.coerceIn(0.0, 1.0)
                     _ragUseReranker.value = it.ragUseReranker
                     _githubUsername.value = it.githubUsername
+                    _supportUserEmail.value = it.supportUserEmail
+                    _autoIncludeSupportContext.value = it.autoIncludeSupportContext
                 }
             } catch (e: Exception) {
                 // Игнорируем ошибки загрузки
@@ -216,6 +234,18 @@ class SettingsViewModel(
     }
 
     fun getGitHubUsername(): String = _githubUsername.value
+
+    fun updateSupportUserEmail(email: String) {
+        _supportUserEmail.value = email.trim()
+    }
+
+    fun getSupportUserEmail(): String = _supportUserEmail.value
+
+    fun updateAutoIncludeSupportContext(enabled: Boolean) {
+        _autoIncludeSupportContext.value = enabled
+    }
+
+    fun getAutoIncludeSupportContext(): Boolean = _autoIncludeSupportContext.value
 
     /** Привязать текущие GitHub username и Telegram Chat ID к сервису ревью PR для доставки ревью в Telegram. */
     fun registerPrReviewForTelegram() {

@@ -17,6 +17,8 @@ import dev.catandbunny.ai_companion.mcp.github.McpToolConverter
 import dev.catandbunny.ai_companion.data.model.Tool
 import dev.catandbunny.ai_companion.data.model.ToolCall
 import kotlinx.coroutines.Dispatchers
+import org.json.JSONObject
+import org.json.JSONArray
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -30,7 +32,9 @@ class ChatRepository(
     private val getTelegramChatId: () -> String = { "" },
     private val getRagEnabled: () -> Boolean = { false },
     private val getRagMinScore: () -> Double = { 0.0 },
-    private val getRagUseReranker: () -> Boolean = { false }
+    private val getRagUseReranker: () -> Boolean = { false },
+    private val getSupportUserEmail: () -> String = { "" },
+    private val getAutoIncludeSupportContext: () -> Boolean = { false }
 ) {
     private val openAIService = RetrofitClient.openAIService
     private val mcpRepository = McpRepository()
@@ -126,6 +130,17 @@ class ChatRepository(
                 }
             }
             
+            // Контекст поддержки (тикеты, история) — если включён и указан email
+            var supportContextMessage: String? = null
+            val supportEmail = getSupportUserEmail().trim()
+            if (getAutoIncludeSupportContext() && supportEmail.isNotBlank()) {
+                val ctx = withContext(Dispatchers.IO) { getSupportContext(supportEmail) }
+                if (ctx != null) {
+                    supportContextMessage = buildSupportContextText(ctx)
+                    Log.d("ChatRepository", "Support context added for $supportEmail")
+                }
+            }
+
             // Системный промпт (без RAG — RAG идёт отдельным сообщением перед вопросом)
             val systemPrompt = Message(
                 role = "system",
@@ -172,6 +187,10 @@ class ChatRepository(
                         Для демо на эмуляторе (открыть приложение, отправить сообщение про инвестиции, записать экран) вызывай control_android_emulator с action="simulate_user_flow". Другие action: start_emulator, record_screen, stop_recording, get_recording_path. Не используй test_message или recording_start как action — это параметры, не действия.
                         """.trimIndent()
                     ))
+                }
+                // Контекст поддержки пользователя (тикеты, история)
+                if (supportContextMessage != null) {
+                    add(Message(role = "system", content = supportContextMessage))
                 }
                 
                 addAll(regularMessages.map { chatMessage ->
@@ -686,12 +705,17 @@ class ChatRepository(
      */
     private fun fetchRagChunks(query: String): List<RagChunk> {
         if (query.isBlank()) return emptyList()
-        val baseUrl = BuildConfig.RAG_SERVICE_URL.trimEnd('/')
+        val raw = BuildConfig.RAG_SERVICE_URL.trim().trimStart('/').trimEnd('/')
+        if (raw.isBlank()) return emptyList()
+        val baseUrl = when {
+            raw.startsWith("http://") || raw.startsWith("https://") -> raw
+            else -> "http://$raw"
+        }
         val url = "$baseUrl/search"
         // Больше чанков — выше шанс захватить нужный фрагмент (в диссертациях/PDF много имён, семантика размазана)
         val minScore = getRagMinScore().coerceIn(0.0, 1.0)
         val useReranker = getRagUseReranker()
-        Log.d("ChatRepository", "RAG request: min_score=$minScore, use_reranker=$useReranker")
+        Log.d("ChatRepository", "RAG URL: $url (min_score=$minScore, use_reranker=$useReranker)")
         val body = """{"query":${gson.toJson(query)},"top_k":10,"min_score":$minScore,"use_reranker":$useReranker}"""
         val request = Request.Builder()
             .url(url)
@@ -711,7 +735,7 @@ class ChatRepository(
                 chunks
             }
         } catch (e: Exception) {
-            Log.w("ChatRepository", "RAG fetch failed: ${e.message}")
+            Log.w("ChatRepository", "RAG fetch failed: ${e.message}, url=$url")
             emptyList()
         }
     }
@@ -722,4 +746,192 @@ class ChatRepository(
         val source: String? = null  // имя документа для цитирования (например Test_sample.pdf)
     )
     private data class RagSearchResponse(val chunks: List<RagChunk>?)
+
+    /**
+     * Получить контекст поддержки пользователя по email (тикеты, история) через MCP get_user_support_context.
+     * Возвращает null при ошибке или недоступности MCP.
+     */
+    suspend fun getSupportContext(userEmail: String): SupportContext? {
+        if (userEmail.isBlank()) return null
+        return withContext(Dispatchers.IO) {
+            try {
+                val service = mcpRepository.getGitHubService() ?: return@withContext null
+                val args = mapOf(
+                    "user_email" to userEmail,
+                    "include_tickets" to true,
+                    "include_history" to true
+                )
+                val result = service.callTool("get_user_support_context", args)
+                result.fold(
+                    onSuccess = { toolResult ->
+                        val contentList = toolResult.content ?: emptyList()
+                        val text = contentList
+                            .filter { it.type == "text" }
+                            .joinToString("\n") { it.text ?: "" }
+                        if (text.isBlank()) return@fold null
+                        parseSupportContextJson(text)
+                    },
+                    onFailure = {
+                        Log.w("ChatRepository", "get_user_support_context failed", it)
+                        null
+                    }
+                )
+            } catch (e: Exception) {
+                Log.e("ChatRepository", "getSupportContext error", e)
+                null
+            }
+        }
+    }
+
+    private fun parseSupportContextJson(jsonText: String): SupportContext? {
+        return try {
+            val json = JSONObject(jsonText)
+            val userInfoObj = json.optJSONObject("user_info") ?: return null
+            val userInfo = UserInfo(
+                email = userInfoObj.optString("email", ""),
+                name = userInfoObj.optString("name", ""),
+                plan = userInfoObj.optString("plan", ""),
+                created_at = userInfoObj.optString("created_at", "")
+            )
+            val ticketsArray = json.optJSONArray("open_tickets") ?: JSONArray()
+            val openTickets = (0 until ticketsArray.length()).map { i ->
+                val o = ticketsArray.getJSONObject(i)
+                Ticket(
+                    id = o.optString("id", ""),
+                    subject = o.optString("subject", ""),
+                    status = o.optString("status", ""),
+                    created_at = o.optString("created_at", ""),
+                    last_message = o.optString("last_message", "")
+                )
+            }
+            val interactionsArray = json.optJSONArray("recent_interactions") ?: JSONArray()
+            val recentInteractions = (0 until interactionsArray.length()).map { i ->
+                val o = interactionsArray.getJSONObject(i)
+                Interaction(
+                    type = o.optString("type", ""),
+                    timestamp = o.optString("timestamp", ""),
+                    summary = o.optString("summary", "")
+                )
+            }
+            SupportContext(user_info = userInfo, open_tickets = openTickets, recent_interactions = recentInteractions)
+        } catch (e: Exception) {
+            Log.w("ChatRepository", "parseSupportContextJson failed", e)
+            null
+        }
+    }
+
+    private fun buildSupportContextText(ctx: SupportContext): String {
+        val ticketsBlock = ctx.open_tickets.joinToString("\n") { t ->
+            "- #${t.id} ${t.subject} (${t.status}): ${t.last_message}"
+        }
+        val historyBlock = ctx.recent_interactions.joinToString("\n") { i ->
+            "- ${i.type} (${i.timestamp}): ${i.summary}"
+        }
+        return """
+            Контекст поддержки пользователя:
+            Email: ${ctx.user_info.email}
+            Имя: ${ctx.user_info.name}
+            План: ${ctx.user_info.plan}
+            
+            Открытые тикеты:
+            ${if (ticketsBlock.isBlank()) "Нет открытых тикетов" else ticketsBlock}
+            
+            Недавние обращения:
+            ${if (historyBlock.isBlank()) "Нет данных" else historyBlock}
+        """.trimIndent()
+    }
+
+    /**
+     * Получить детали тикета по id через MCP get_ticket_details.
+     * Возвращает текст с деталями или null при ошибке.
+     */
+    suspend fun getTicketDetails(ticketId: String): String? {
+        if (ticketId.isBlank()) return null
+        return withContext(Dispatchers.IO) {
+            try {
+                val service = mcpRepository.getGitHubService() ?: return@withContext null
+                val result = service.callTool("get_ticket_details", mapOf("ticket_id" to ticketId.trim()))
+                result.fold(
+                    onSuccess = { toolResult ->
+                        val contentList = toolResult.content ?: emptyList()
+                        val text = contentList
+                            .filter { it.type == "text" }
+                            .joinToString("\n") { it.text ?: "" }
+                        text.takeIf { it.isNotBlank() }
+                    },
+                    onFailure = {
+                        Log.w("ChatRepository", "get_ticket_details failed", it)
+                        it.message
+                    }
+                )
+            } catch (e: Exception) {
+                Log.e("ChatRepository", "getTicketDetails error", e)
+                e.message
+            }
+        }
+    }
+
+    /**
+     * Создать тикет через MCP create_ticket.
+     * Возвращает текст результата (успех или ошибка) или null при сбое вызова.
+     */
+    suspend fun createTicket(userEmail: String, message: String): String? {
+        if (userEmail.isBlank() || message.isBlank()) return null
+        return withContext(Dispatchers.IO) {
+            try {
+                val service = mcpRepository.getGitHubService() ?: return@withContext null
+                val result = service.callTool(
+                    "create_ticket",
+                    mapOf(
+                        "user_email" to userEmail.trim(),
+                        "message" to message.trim()
+                    )
+                )
+                result.fold(
+                    onSuccess = { toolResult ->
+                        val contentList = toolResult.content ?: emptyList()
+                        val text = contentList
+                            .filter { it.type == "text" }
+                            .joinToString("\n") { it.text ?: "" }
+                        text.takeIf { it.isNotBlank() } ?: if (toolResult.isError) "Ошибка создания тикета" else null
+                    },
+                    onFailure = {
+                        Log.w("ChatRepository", "create_ticket failed", it)
+                        it.message
+                    }
+                )
+            } catch (e: Exception) {
+                Log.e("ChatRepository", "createTicket error", e)
+                e.message
+            }
+        }
+    }
 }
+
+// Data classes для контекста поддержки (CRM MCP)
+data class SupportContext(
+    val user_info: UserInfo,
+    val open_tickets: List<Ticket>,
+    val recent_interactions: List<Interaction>
+)
+
+data class UserInfo(
+    val email: String,
+    val name: String,
+    val plan: String,
+    val created_at: String
+)
+
+data class Ticket(
+    val id: String,
+    val subject: String,
+    val status: String,
+    val created_at: String,
+    val last_message: String
+)
+
+data class Interaction(
+    val type: String,
+    val timestamp: String,
+    val summary: String
+)
