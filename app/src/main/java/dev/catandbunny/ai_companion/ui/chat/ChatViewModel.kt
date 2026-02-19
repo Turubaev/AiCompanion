@@ -467,8 +467,13 @@ class ChatViewModel(
             appendSupportMessage("Укажите номер или id тикета, например: /ticket 1 или /ticket TICKET-123")
             return
         }
-        // TODO: добавить MCP инструмент get_ticket_details для деталей тикета
-        appendSupportMessage("Загрузка деталей тикета $ticketId… (функция в разработке)")
+        val normalizedId = ticketId.trim()
+        val details = withContext(Dispatchers.IO) { repository.getTicketDetails(normalizedId) }
+        if (!details.isNullOrBlank()) {
+            appendSupportMessage(details)
+        } else {
+            appendSupportMessage("Тикет не найден или сервис недоступен.")
+        }
     }
 
     private suspend fun handleNewTicketCommand(message: String) {
@@ -481,8 +486,12 @@ class ChatViewModel(
             appendSupportMessage("Сначала укажите ваш email в настройках поддержки.")
             return
         }
-        // TODO: создание тикета через CRM MCP
-        appendSupportMessage("Создание нового тикета: \"$message\" (функция в разработке)")
+        val result = withContext(Dispatchers.IO) { repository.createTicket(email, message) }
+        if (!result.isNullOrBlank()) {
+            appendSupportMessage(result)
+        } else {
+            appendSupportMessage("Не удалось создать тикет. Проверьте подключение к MCP и сервис поддержки.")
+        }
     }
 
     private suspend fun appendSupportMessage(text: String) {

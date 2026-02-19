@@ -705,12 +705,17 @@ class ChatRepository(
      */
     private fun fetchRagChunks(query: String): List<RagChunk> {
         if (query.isBlank()) return emptyList()
-        val baseUrl = BuildConfig.RAG_SERVICE_URL.trimEnd('/')
+        val raw = BuildConfig.RAG_SERVICE_URL.trim().trimStart('/').trimEnd('/')
+        if (raw.isBlank()) return emptyList()
+        val baseUrl = when {
+            raw.startsWith("http://") || raw.startsWith("https://") -> raw
+            else -> "http://$raw"
+        }
         val url = "$baseUrl/search"
         // Больше чанков — выше шанс захватить нужный фрагмент (в диссертациях/PDF много имён, семантика размазана)
         val minScore = getRagMinScore().coerceIn(0.0, 1.0)
         val useReranker = getRagUseReranker()
-        Log.d("ChatRepository", "RAG request: min_score=$minScore, use_reranker=$useReranker")
+        Log.d("ChatRepository", "RAG URL: $url (min_score=$minScore, use_reranker=$useReranker)")
         val body = """{"query":${gson.toJson(query)},"top_k":10,"min_score":$minScore,"use_reranker":$useReranker}"""
         val request = Request.Builder()
             .url(url)
@@ -730,7 +735,7 @@ class ChatRepository(
                 chunks
             }
         } catch (e: Exception) {
-            Log.w("ChatRepository", "RAG fetch failed: ${e.message}")
+            Log.w("ChatRepository", "RAG fetch failed: ${e.message}, url=$url")
             emptyList()
         }
     }
@@ -834,6 +839,72 @@ class ChatRepository(
             Недавние обращения:
             ${if (historyBlock.isBlank()) "Нет данных" else historyBlock}
         """.trimIndent()
+    }
+
+    /**
+     * Получить детали тикета по id через MCP get_ticket_details.
+     * Возвращает текст с деталями или null при ошибке.
+     */
+    suspend fun getTicketDetails(ticketId: String): String? {
+        if (ticketId.isBlank()) return null
+        return withContext(Dispatchers.IO) {
+            try {
+                val service = mcpRepository.getGitHubService() ?: return@withContext null
+                val result = service.callTool("get_ticket_details", mapOf("ticket_id" to ticketId.trim()))
+                result.fold(
+                    onSuccess = { toolResult ->
+                        val contentList = toolResult.content ?: emptyList()
+                        val text = contentList
+                            .filter { it.type == "text" }
+                            .joinToString("\n") { it.text ?: "" }
+                        text.takeIf { it.isNotBlank() }
+                    },
+                    onFailure = {
+                        Log.w("ChatRepository", "get_ticket_details failed", it)
+                        it.message
+                    }
+                )
+            } catch (e: Exception) {
+                Log.e("ChatRepository", "getTicketDetails error", e)
+                e.message
+            }
+        }
+    }
+
+    /**
+     * Создать тикет через MCP create_ticket.
+     * Возвращает текст результата (успех или ошибка) или null при сбое вызова.
+     */
+    suspend fun createTicket(userEmail: String, message: String): String? {
+        if (userEmail.isBlank() || message.isBlank()) return null
+        return withContext(Dispatchers.IO) {
+            try {
+                val service = mcpRepository.getGitHubService() ?: return@withContext null
+                val result = service.callTool(
+                    "create_ticket",
+                    mapOf(
+                        "user_email" to userEmail.trim(),
+                        "message" to message.trim()
+                    )
+                )
+                result.fold(
+                    onSuccess = { toolResult ->
+                        val contentList = toolResult.content ?: emptyList()
+                        val text = contentList
+                            .filter { it.type == "text" }
+                            .joinToString("\n") { it.text ?: "" }
+                        text.takeIf { it.isNotBlank() } ?: if (toolResult.isError) "Ошибка создания тикета" else null
+                    },
+                    onFailure = {
+                        Log.w("ChatRepository", "create_ticket failed", it)
+                        it.message
+                    }
+                )
+            } catch (e: Exception) {
+                Log.e("ChatRepository", "createTicket error", e)
+                e.message
+            }
+        }
     }
 }
 
