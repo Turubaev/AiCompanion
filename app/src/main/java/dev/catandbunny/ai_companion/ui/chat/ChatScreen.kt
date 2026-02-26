@@ -225,12 +225,13 @@ fun ChatScreen(
     // Диалог создания задачи (/newticket): заголовок, описание, приоритет
     if (showNewTicketDialog) {
         var dialogTitle by remember { mutableStateOf("") }
-        var dialogDescription by remember { mutableStateOf("") }
+        var dialogDescription by remember(newTicketDialogInitialDescription) {
+            mutableStateOf(newTicketDialogInitialDescription)
+        }
         var dialogPriority by remember { mutableStateOf("medium") }
         var priorityMenuExpanded by remember { mutableStateOf(false) }
         LaunchedEffect(showNewTicketDialog) {
             if (showNewTicketDialog) {
-                dialogDescription = newTicketDialogInitialDescription
                 dialogTitle = ""
                 dialogPriority = "medium"
                 messageText = "" // очистить поле ввода от /newticket ...

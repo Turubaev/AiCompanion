@@ -506,6 +506,7 @@ class ChatViewModel(
             val desc = description.trim()
             if (desc.isBlank()) {
                 appendSupportMessage("Введите описание задачи.")
+                dismissNewTicketDialog()
                 return@launch
             }
             val subj = subject.trim()
