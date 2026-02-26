@@ -2,8 +2,9 @@
 /**
  * Support API
  * - GET /user-context?email=...&include_tickets=1&include_history=1  -> { user_info, open_tickets, recent_interactions }
+ * - GET /tickets?priority=high|medium|low&status=open|closed|all -> list tickets (tasks with priority)
  * - GET /ticket/:id -> ticket details or 404
- * - POST /ticket -> { user_email, subject?, message } -> create ticket
+ * - POST /ticket -> { user_email, subject?, message?, priority? } -> create ticket (priority: high|medium|low, default medium)
  *
  * Env: PORT (default 3010)
  */
@@ -31,6 +32,12 @@ function ensureDataDir() {
   }
 }
 
+const VALID_PRIORITIES = ["high", "medium", "low"];
+function normalizePriority(p) {
+  const v = (p || "").trim().toLowerCase();
+  return VALID_PRIORITIES.includes(v) ? v : "medium";
+}
+
 function loadData() {
   ensureDataDir();
   if (fs.existsSync(DATA_FILE)) {
@@ -38,7 +45,10 @@ function loadData() {
       const raw = fs.readFileSync(DATA_FILE, "utf8");
       const data = JSON.parse(raw);
       state.users = data.users || {};
-      state.tickets = data.tickets || [];
+      state.tickets = (data.tickets || []).map((t) => ({
+        ...t,
+        priority: normalizePriority(t.priority),
+      }));
       state.interactions = data.interactions || [];
       state.nextTicketId = data.nextTicketId || 1;
       const maxId = state.tickets.reduce((acc, t) => {
@@ -128,6 +138,7 @@ app.get("/user-context", (req, res) => {
       id: t.id,
       subject: t.subject,
       status: t.status,
+      priority: t.priority || "medium",
       created_at: t.created_at,
       last_message: t.last_message,
     })),
@@ -153,6 +164,7 @@ app.get("/ticket/:id", (req, res) => {
     id: ticket.id,
     subject: ticket.subject,
     status: ticket.status,
+    priority: ticket.priority || "medium",
     created_at: ticket.created_at,
     last_message: ticket.last_message,
     user_email: ticket.user_email,
@@ -160,7 +172,35 @@ app.get("/ticket/:id", (req, res) => {
   });
 });
 
-// POST /ticket -> { user_email, subject?, message }
+// GET /tickets?priority=high|medium|low&status=open|closed|all
+app.get("/tickets", (req, res) => {
+  const priority = (req.query.priority || "").trim().toLowerCase();
+  const statusFilter = (req.query.status || "open").trim().toLowerCase();
+
+  let list = [...state.tickets];
+  if (VALID_PRIORITIES.includes(priority)) {
+    list = list.filter((t) => (t.priority || "medium") === priority);
+  }
+  if (statusFilter === "open") {
+    list = list.filter((t) => t.status !== "closed");
+  } else if (statusFilter === "closed") {
+    list = list.filter((t) => t.status === "closed");
+  }
+  // "all" — без фильтра по статусу
+
+  const result = list.map((t) => ({
+    id: t.id,
+    subject: t.subject,
+    status: t.status,
+    priority: t.priority || "medium",
+    created_at: t.created_at,
+    last_message: t.last_message,
+    user_email: t.user_email,
+  }));
+  res.json(result);
+});
+
+// POST /ticket -> { user_email, subject?, message, priority? }
 app.post("/ticket", (req, res) => {
   const userEmail = (req.body?.user_email || "").trim().toLowerCase();
   const message = (req.body?.message || "").trim();
@@ -177,6 +217,7 @@ app.post("/ticket", (req, res) => {
     (req.body?.subject || "").trim() ||
     message.split(/\n/)[0]?.trim().slice(0, 200) ||
     "Без темы";
+  const priority = normalizePriority(req.body?.priority);
   const id = "TICKET-" + state.nextTicketId++;
   const created_at = isoNow();
   const ticket = {
@@ -184,6 +225,7 @@ app.post("/ticket", (req, res) => {
     user_email: userEmail,
     subject,
     status: "open",
+    priority,
     created_at,
     last_message: message,
     messages: [{ from: "user", text: message, at: created_at }],
@@ -201,6 +243,7 @@ app.post("/ticket", (req, res) => {
     id: ticket.id,
     subject: ticket.subject,
     status: ticket.status,
+    priority: ticket.priority,
     created_at: ticket.created_at,
   });
 });

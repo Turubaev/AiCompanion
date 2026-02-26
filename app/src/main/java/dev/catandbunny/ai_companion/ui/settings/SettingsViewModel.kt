@@ -169,7 +169,26 @@ class SettingsViewModel(
         _systemPrompt.value = newPrompt
     }
 
+    /** Подставить рекомендуемый промпт «ассистент проекта и задач» (RAG + list_tasks + приоритеты). */
+    fun setProjectAndTasksAssistantPrompt() {
+        _systemPrompt.value = PROJECT_AND_TASKS_ASSISTANT_PROMPT
+    }
+
     fun getSystemPrompt(): String = _systemPrompt.value
+
+    companion object {
+        /** Рекомендуемый системный промпт: единый ассистент (RAG, задачи, приоритеты). */
+        val PROJECT_AND_TASKS_ASSISTANT_PROMPT = """
+            Ты — единый AI-ассистент: знаешь проект (RAG), работаешь с задачами (тикетами) и помогаешь расставлять приоритеты.
+
+            Правила:
+            1. Используй RAG для ответов о продукте и документации; указывай источники.
+            2. При вопросах про задачи, приоритеты, «что делать первым», «статус проекта» — вызывай list_tasks с нужными priority/status (например priority=high, status=open).
+            3. Создавай задачи через create_ticket; при необходимости указывай priority (high/medium/low).
+            4. Дай рекомендации по приоритетам на основе списка задач: сначала high, с учётом контекста и дедлайнов из тикетов.
+            5. Контекст поддержки пользователя (если добавлен) используй для учёта открытых тикетов и истории.
+        """.trimIndent()
+    }
 
     fun updateTemperature(newTemperature: Double) {
         _temperature.value = newTemperature.coerceIn(0.0, 2.0)

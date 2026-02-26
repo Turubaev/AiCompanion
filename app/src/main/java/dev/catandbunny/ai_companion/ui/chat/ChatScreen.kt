@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -11,6 +12,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
@@ -94,6 +96,8 @@ fun ChatScreen(
     var showSettings by remember { mutableStateOf(false) }
     var showMcpTools by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
+    val showNewTicketDialog by viewModel.showNewTicketDialog.collectAsState()
+    val newTicketDialogInitialDescription by viewModel.newTicketDialogInitialDescription.collectAsState()
 
     // При открытии из пуш-уведомления о курсе — добавляем текст в чат как сообщение бота
     LaunchedEffect(Unit) {
@@ -216,6 +220,100 @@ fun ChatScreen(
             }
         )
         return
+    }
+
+    // Диалог создания задачи (/newticket): заголовок, описание, приоритет
+    if (showNewTicketDialog) {
+        var dialogTitle by remember { mutableStateOf("") }
+        var dialogDescription by remember { mutableStateOf("") }
+        var dialogPriority by remember { mutableStateOf("medium") }
+        var priorityMenuExpanded by remember { mutableStateOf(false) }
+        LaunchedEffect(showNewTicketDialog) {
+            if (showNewTicketDialog) {
+                dialogDescription = newTicketDialogInitialDescription
+                dialogTitle = ""
+                dialogPriority = "medium"
+                messageText = "" // очистить поле ввода от /newticket ...
+            }
+        }
+        val priorityLabel = when (dialogPriority) {
+            "high" -> "Высокий"
+            "low" -> "Низкий"
+            else -> "Средний"
+        }
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissNewTicketDialog() },
+            title = { Text("Новая задача") },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    OutlinedTextField(
+                        value = dialogTitle,
+                        onValueChange = { dialogTitle = it },
+                        label = { Text("Заголовок") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = dialogDescription,
+                        onValueChange = { dialogDescription = it },
+                        label = { Text("Описание") },
+                        minLines = 3,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { priorityMenuExpanded = true }
+                    ) {
+                        OutlinedTextField(
+                            value = priorityLabel,
+                            onValueChange = {},
+                            readOnly = true,
+                            enabled = false,
+                            label = { Text("Приоритет") },
+                            modifier = Modifier.fillMaxWidth(),
+                            trailingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.ArrowDropDown,
+                                    contentDescription = null
+                                )
+                            }
+                        )
+                        DropdownMenu(
+                            expanded = priorityMenuExpanded,
+                            onDismissRequest = { priorityMenuExpanded = false }
+                        ) {
+                            listOf("high" to "Высокий", "medium" to "Средний", "low" to "Низкий").forEach { (value, label) ->
+                                DropdownMenuItem(
+                                    text = { Text(label) },
+                                    onClick = {
+                                        dialogPriority = value
+                                        priorityMenuExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.createTicketFromDialog(dialogTitle, dialogDescription, dialogPriority)
+                    }
+                ) {
+                    Text("Создать")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.dismissNewTicketDialog() }) {
+                    Text("Отмена")
+                }
+            }
+        )
     }
     
     // Корневой экран чата: перехват "Назад", чтобы приложение не закрывалось
