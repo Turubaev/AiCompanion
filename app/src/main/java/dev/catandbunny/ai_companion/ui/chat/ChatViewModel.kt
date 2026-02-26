@@ -75,6 +75,13 @@ class ChatViewModel(
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
 
+    /** Показывать ли диалог создания задачи (/newticket). */
+    private val _showNewTicketDialog = MutableStateFlow(false)
+    val showNewTicketDialog: StateFlow<Boolean> = _showNewTicketDialog.asStateFlow()
+    /** Начальное описание для диалога (если пользователь ввёл /newticket какой-то текст). */
+    private val _newTicketDialogInitialDescription = MutableStateFlow("")
+    val newTicketDialogInitialDescription: StateFlow<String> = _newTicketDialogInitialDescription.asStateFlow()
+
     // Накопленные токены из сжатых сообщений (для сохранения истории токенов)
     private val _accumulatedCompressedTokens = MutableStateFlow(0)
     val accumulatedCompressedTokens: StateFlow<Int> = _accumulatedCompressedTokens.asStateFlow()
@@ -252,7 +259,7 @@ class ChatViewModel(
             }
             lower.startsWith("/newticket") -> {
                 val arg = trimmed.substring(10.coerceAtMost(trimmed.length)).trim()
-                viewModelScope.launch { handleNewTicketCommand(arg) }
+                openNewTicketDialog(arg)
                 return
             }
         }
@@ -476,21 +483,42 @@ class ChatViewModel(
         }
     }
 
-    private suspend fun handleNewTicketCommand(message: String) {
-        if (message.isBlank()) {
-            appendSupportMessage("Укажите текст обращения, например: /newticket Не могу войти в приложение")
-            return
-        }
-        val email = getSupportUserEmail().trim()
-        if (email.isBlank()) {
-            appendSupportMessage("Сначала укажите ваш email в настройках поддержки.")
-            return
-        }
-        val result = withContext(Dispatchers.IO) { repository.createTicket(email, message) }
-        if (!result.isNullOrBlank()) {
-            appendSupportMessage(result)
-        } else {
-            appendSupportMessage("Не удалось создать тикет. Проверьте подключение к MCP и сервис поддержки.")
+    /** Открыть диалог создания задачи; опционально подставить начальное описание (например из /newticket текст). */
+    fun openNewTicketDialog(initialDescription: String = "") {
+        _newTicketDialogInitialDescription.value = initialDescription
+        _showNewTicketDialog.value = true
+    }
+
+    fun dismissNewTicketDialog() {
+        _showNewTicketDialog.value = false
+        _newTicketDialogInitialDescription.value = ""
+    }
+
+    /** Создать задачу из диалога (заголовок, описание, приоритет) и показать результат в чате. */
+    fun createTicketFromDialog(subject: String, description: String, priority: String) {
+        viewModelScope.launch {
+            val email = getSupportUserEmail().trim()
+            if (email.isBlank()) {
+                appendSupportMessage("Сначала укажите ваш email в настройках поддержки.")
+                dismissNewTicketDialog()
+                return@launch
+            }
+            val desc = description.trim()
+            if (desc.isBlank()) {
+                appendSupportMessage("Введите описание задачи.")
+                return@launch
+            }
+            val subj = subject.trim()
+            val prio = priority.trim().lowercase().takeIf { it in listOf("high", "medium", "low") } ?: "medium"
+            val result = withContext(Dispatchers.IO) {
+                repository.createTicket(email, subj.ifBlank { null }, desc, prio)
+            }
+            dismissNewTicketDialog()
+            if (!result.isNullOrBlank()) {
+                appendSupportMessage(result)
+            } else {
+                appendSupportMessage("Не удалось создать тикет. Проверьте подключение к MCP и сервис поддержки.")
+            }
         }
     }
 

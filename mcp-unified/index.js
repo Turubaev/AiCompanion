@@ -464,7 +464,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     },
     {
       name: "list_pull_requests",
-      description: "Список pull request любого репозитория на GitHub. Вызывай при вопросах про PR, пулл-реквесты. Параметры: owner и repo (как в list_repo_branches), state: open, closed или all. Примеры репо: Turubaev/CloudBuddy, microsoft/vscode.",
+      description: "Список pull request (PR) репозитория на GitHub. Только для вопросов про пулл-реквесты, ветки, код-ревью — НЕ для «задач с приоритетом» (для них используй list_tasks). Параметры: owner, repo, state (open/closed/all). Примеры: Turubaev/CloudBuddy.",
       inputSchema: {
         type: "object",
         properties: {
@@ -557,6 +557,27 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
     },
     {
+      name: "list_tasks",
+      description: "Получить список задач (тикетов) команды с опциональной фильтрацией по приоритету и статусу. Используй при вопросах «покажи задачи с приоритетом high», «статус проекта», «что в работе», «что делать первым» — это задачи/тикеты с приоритетом high/medium/low.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          priority: {
+            type: "string",
+            description: "Фильтр по приоритету: high, medium, low",
+            enum: ["high", "medium", "low"],
+          },
+          status: {
+            type: "string",
+            description: "Фильтр по статусу: open, closed, all (по умолчанию open)",
+            enum: ["open", "closed", "all"],
+            default: "open",
+          },
+        },
+        required: [],
+      },
+    },
+    {
       name: "get_ticket_details",
       description: "Получить детали тикета поддержки по id (например TICKET-1).",
       inputSchema: {
@@ -572,7 +593,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     },
     {
       name: "create_ticket",
-      description: "Создать новый тикет поддержки от имени пользователя.",
+      description: "Создать новый тикет (задачу) поддержки от имени пользователя. Можно указать приоритет (high, medium, low).",
       inputSchema: {
         type: "object",
         properties: {
@@ -587,6 +608,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           subject: {
             type: "string",
             description: "Тема тикета (опционально)",
+          },
+          priority: {
+            type: "string",
+            description: "Приоритет задачи: high, medium, low",
+            enum: ["high", "medium", "low"],
           },
         },
         required: ["user_email", "message"],
@@ -872,6 +898,38 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     });
   }
 
+  if (name === "list_tasks") {
+    return handleTool(name, async () => {
+      const priority = (args?.priority || "").toString().trim().toLowerCase();
+      const status = (args?.status || "open").toString().trim().toLowerCase();
+      const params = new URLSearchParams();
+      if (["high", "medium", "low"].includes(priority)) params.set("priority", priority);
+      if (["open", "closed", "all"].includes(status)) params.set("status", status);
+      const path = "/tickets" + (params.toString() ? "?" + params.toString() : "");
+      const { statusCode, body } = await supportApiRequest(path);
+      if (statusCode !== 200) {
+        let errMsg = "Support API error";
+        try {
+          const j = JSON.parse(body);
+          if (j.error) errMsg = j.error;
+        } catch (_) { errMsg = body || errMsg; }
+        return { content: [{ type: "text", text: errMsg }], isError: true };
+      }
+      const tickets = JSON.parse(body);
+      if (!Array.isArray(tickets)) {
+        return { content: [{ type: "text", text: "Неожиданный ответ API." }], isError: true };
+      }
+      if (tickets.length === 0) {
+        return { content: [{ type: "text", text: "Нет задач по заданным фильтрам." }] };
+      }
+      const lines = tickets.map((t, i) => {
+        const p = (t.priority || "medium");
+        return (i + 1) + ". " + t.id + " [" + p + "] " + (t.status || "") + " — " + (t.subject || "") + "\n   " + (t.created_at || "") + (t.last_message ? "\n   " + String(t.last_message).slice(0, 80) + "…" : "");
+      });
+      return { content: [{ type: "text", text: "Задачи:\n\n" + lines.join("\n\n") }] };
+    });
+  }
+
   if (name === "get_ticket_details") {
     return handleTool(name, async () => {
       const ticketId = (args?.ticket_id || "").toString().trim();
@@ -901,6 +959,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         "Тикет #" + ticket.id,
         "Тема: " + (ticket.subject || ""),
         "Статус: " + (ticket.status || ""),
+        "Приоритет: " + (ticket.priority || "medium"),
         "Создан: " + (ticket.created_at || ""),
         "Последнее сообщение: " + (ticket.last_message || ""),
         "",
@@ -922,7 +981,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return { content: [{ type: "text", text: "Укажите message." }], isError: true };
       }
       const subject = (args?.subject || "").toString().trim() || undefined;
+      const priority = (args?.priority || "").toString().trim().toLowerCase();
       const body = { user_email: userEmail, message, subject };
+      if (["high", "medium", "low"].includes(priority)) body.priority = priority;
       const { statusCode, body: resBody } = await supportApiRequest("/ticket", "POST", body);
       if (statusCode !== 201 && statusCode !== 200) {
         let errMsg = "Не удалось создать тикет";
@@ -933,7 +994,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return { content: [{ type: "text", text: errMsg }], isError: true };
       }
       const created = JSON.parse(resBody);
-      const text = "Тикет создан: " + created.id + "\nТема: " + (created.subject || "") + "\nСтатус: " + (created.status || "open");
+      const text = "Тикет создан: " + created.id + "\nТема: " + (created.subject || "") + "\nСтатус: " + (created.status || "open") + (created.priority ? "\nПриоритет: " + created.priority : "");
       return { content: [{ type: "text", text }] };
     });
   }

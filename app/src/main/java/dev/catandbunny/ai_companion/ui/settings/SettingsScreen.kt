@@ -140,6 +140,13 @@ fun SettingsScreen(
             ) {
                 Text("Редактировать")
             }
+            // Подставить промпт «ассистент проекта и задач»
+            OutlinedButton(
+                onClick = { viewModel.setProjectAndTasksAssistantPrompt() },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Подставить промпт: ассистент проекта и задач")
+            }
             
             Spacer(modifier = Modifier.height(24.dp))
             

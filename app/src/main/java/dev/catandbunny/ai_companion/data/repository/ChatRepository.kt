@@ -188,6 +188,15 @@ class ChatRepository(
                         """.trimIndent()
                     ))
                 }
+                // Подсказка для list_tasks: «задачи с приоритетом» = тикеты из list_tasks, не PR
+                if (mcpTools?.any { it.function.name == "list_tasks" } == true) {
+                    add(Message(
+                        role = "system",
+                        content = """
+                        «Задачи с приоритетом high/medium/low» — это тикеты команды (из list_tasks), НЕ пулл-реквесты. При запросе «покажи задачи с приоритетом high» или «задачи high» обязательно вызови list_tasks с priority=high (не list_pull_requests и не list_repo_branches). Для PR и веток — list_pull_requests/list_repo_branches. Рекомендации по приоритетам строй на основе результата list_tasks; для создания задач — create_ticket с priority.
+                        """.trimIndent()
+                    ))
+                }
                 // Контекст поддержки пользователя (тикеты, история)
                 if (supportContextMessage != null) {
                     add(Message(role = "system", content = supportContextMessage))
@@ -873,20 +882,38 @@ class ChatRepository(
 
     /**
      * Создать тикет через MCP create_ticket.
+     * @param subject тема (заголовок) тикета; если пусто, берётся первая строка описания или "Без темы"
+     * @param priority high, medium или low; null = medium по умолчанию на сервере
      * Возвращает текст результата (успех или ошибка) или null при сбое вызова.
      */
-    suspend fun createTicket(userEmail: String, message: String): String? {
+    suspend fun createTicket(
+        userEmail: String,
+        subject: String?,
+        message: String,
+        priority: String?
+    ): String? {
         if (userEmail.isBlank() || message.isBlank()) return null
         return withContext(Dispatchers.IO) {
             try {
-                val service = mcpRepository.getGitHubService() ?: return@withContext null
-                val result = service.callTool(
-                    "create_ticket",
-                    mapOf(
-                        "user_email" to userEmail.trim(),
-                        "message" to message.trim()
-                    )
+                // Убедимся, что MCP инициализирован (важно при создании тикета до первого sendMessage)
+                if (!mcpRepository.isConnected()) {
+                    val initResult = mcpRepository.initialize()
+                    if (initResult.isFailure || !mcpRepository.isConnected()) {
+                        Log.w("ChatRepository", "createTicket: MCP не инициализирован: ${initResult.exceptionOrNull()?.message}")
+                        return@withContext "MCP не инициализирован или недоступен. Проверьте подключение к MCP серверу."
+                    }
+                }
+                val service = mcpRepository.getGitHubService() ?: run {
+                    Log.w("ChatRepository", "createTicket: GitHubMcpService отсутствует после инициализации")
+                    return@withContext "MCP сервис недоступен. Проверьте подключение к MCP серверу."
+                }
+                val args = mutableMapOf<String, Any>(
+                    "user_email" to userEmail.trim(),
+                    "message" to message.trim()
                 )
+                subject?.takeIf { it.isNotBlank() }?.let { args["subject"] = it }
+                priority?.takeIf { it in listOf("high", "medium", "low") }?.let { args["priority"] = it }
+                val result = service.callTool("create_ticket", args)
                 result.fold(
                     onSuccess = { toolResult ->
                         val contentList = toolResult.content ?: emptyList()
